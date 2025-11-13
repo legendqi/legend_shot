@@ -2,7 +2,7 @@ use eframe::App;
 use eframe::epaint::StrokeKind;
 use egui::{Color32, Id, Pos2, Rect, Stroke, Vec2};
 use image::{GenericImageView, ImageBuffer, Rgba};
-use xcap::{Monitor, Window};
+use xcap::{Monitor};
 
 #[derive(Clone, Copy, PartialEq)]
 enum Tool {
