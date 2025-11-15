@@ -1,5 +1,3 @@
-mod annotation;
-mod app;
 mod screenshot;
 
 use crate::screenshot::ScreenshotApp;

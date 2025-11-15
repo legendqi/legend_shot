@@ -4,7 +4,7 @@ use egui::{Color32, Id, Pos2, Rect, Stroke, Vec2};
 use image::{ImageBuffer, Rgba};
 use xcap::{Monitor};
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 enum Tool {
     Select,
     Brush,
@@ -30,19 +30,17 @@ struct TextInputState {
     is_active: bool,
     widget_id: Id, // 添加widget_id用于焦点管理
     has_focus: bool, // 新增：跟踪焦点状态
-    cursor_color: Color32
 }
 
 // 在创建TextInputState时初始化widget_id
 impl TextInputState {
-    fn new(position: Pos2, cursor_color: Color32) -> Self {
+    fn new(position: Pos2) -> Self {
         Self {
             position,
             text: String::new(),
             is_active: true,
             widget_id: Id::new("text_input".to_string()), // 使用固定ID或生成唯一ID
             has_focus: false,
-            cursor_color,
         }
     }
 }
@@ -75,6 +73,9 @@ pub struct ScreenshotApp {
     toolbar_position: Pos2,
     // 修复：窗口尺寸
     window_rect: Rect,
+
+    // 新增：文本输入完成标记
+    text_input_finalized: bool,
 }
 
 impl Default for ScreenshotApp {
@@ -99,6 +100,7 @@ impl Default for ScreenshotApp {
             show_toolbar: false,
             toolbar_position: Pos2::ZERO,
             window_rect: Rect::NOTHING,
+            text_input_finalized: false,
         }
     }
 }
@@ -170,9 +172,6 @@ impl App for ScreenshotApp {
                 eprintln!("Failed to capture screens: {}", e);
             }
         }
-        // 设置全屏窗口
-        // frame.set_fullscreen(true);
-
         // 主界面
         egui::Area::new(Id::from("screenshot_area".to_string()))
             .order(egui::Order::Background)
@@ -184,7 +183,7 @@ impl App for ScreenshotApp {
             self.draw_text_input(ui);     // 添加文本输入UI
 
             if self.show_toolbar {
-                self.draw_toolbar(ui, ctx);
+                self.draw_toolbar(ctx);
             }
         });
     }
@@ -306,7 +305,11 @@ impl ScreenshotApp {
             if text_state.is_active {
                 // 文本输入激活时，不处理其他工具
                 self.handle_text_input(ui, ctx, pointer_pos);
-                return;
+                // 如果文本输入已经完成，立即返回
+                if self.text_input_finalized {
+                    self.finalize_text_input();
+                    return;
+                }
             }
         }
 
@@ -325,19 +328,20 @@ impl ScreenshotApp {
             } else if self.current_tool != Tool::Select && self.current_tool != Tool::MoveBox {
                 // 检查是否在选择区域内才允许开始标注
                 if let Some(selection_rect) = self.selection_rect {
+                    if self.text_input.is_some() || self.current_tool == Tool::Text {
+                        // 创建文本输入状态
+                        self.finalize_text_input();
+                    }
                     if selection_rect.contains(pointer_pos) {
-                        // 开始标注
-                        self.start_annotation(pointer_pos);
                         // 如果是文本工具，开始文本输入
                         if self.current_tool == Tool::Text {
-                            let mut text_state = TextInputState::new(pointer_pos, self.annotation_color);
-                            // 立即请求焦点
-                            ui.memory_mut(|mem| {
-                                mem.request_focus(text_state.widget_id);
-                            });
-                            text_state.has_focus = true;
-                            self.text_input = Some(text_state);
-                            self.start_annotation(pointer_pos);
+                            if self.text_input.is_none() {
+                                // 创建文本输入状态
+                                let text_state = TextInputState::new(pointer_pos);
+                                self.text_input = Some(text_state);
+                                self.text_input_finalized = false;
+                                self.start_annotation(pointer_pos);
+                            }
                         } else {
                             // 否则，开始标注
                             self.start_annotation(pointer_pos);
@@ -423,12 +427,9 @@ impl ScreenshotApp {
                 }
             } else if let Some(ref mut annotation) = self.current_annotation {
                 // 检查拖动点是否在选择区域内
-                // 如果不是文本工具，检查拖动点是否在选择区域内
-                if self.current_tool != Tool::Text {
-                    if let Some(selection_rect) = self.selection_rect {
-                        if selection_rect.contains(pointer_pos) {
-                            annotation.points.push(pointer_pos);
-                        }
+                if let Some(selection_rect) = self.selection_rect {
+                    if selection_rect.contains(pointer_pos) {
+                        annotation.points.push(pointer_pos);
                     }
                 }
             }
@@ -447,7 +448,7 @@ impl ScreenshotApp {
                         self.update_toolbar_position(rect);
                     }
                 }
-            } else if self.is_moving_box {
+            } else if self.is_moving_box && self.current_tool == Tool::MoveBox {
                 self.is_moving_box = false;
                 self.original_selection_rect = None;
             } else if let Some(annotation) = &self.current_annotation {
@@ -459,20 +460,6 @@ impl ScreenshotApp {
                     self.current_annotation = None;
                 }
                 // 文本工具的完成由文本输入处理
-            } else if let Some(mut annotation) = self.current_annotation.take() {
-                // 对于文本工具，保存文本
-                if self.current_tool == Tool::Text {
-                    if let Some(text_state) = &self.text_input {
-                        annotation.text = text_state.text.clone();
-                    }
-                }
-
-                if annotation.points.len() > 1 || self.current_tool == Tool::Text {
-                    self.annotations.push(annotation);
-                }
-
-                // 重置文本输入状态
-                self.text_input = None;
             }
         }
 
@@ -499,15 +486,10 @@ impl ScreenshotApp {
                 return;
             }
 
-            // 检查点击文本输入区域外部
-            if ui.input(|i| i.pointer.primary_pressed()) {
-                if let Some(response) = ui.memory(|mem| mem.focused()) {
-                    if response != text_state.widget_id {
-                        // 点击了其他区域，结束文本输入
-                        self.finalize_text_input();
-                        return;
-                    }
-                }
+            // 确保焦点
+            if !text_state.has_focus {
+                ui.memory_mut(|mem| mem.request_focus(text_state.widget_id));
+                text_state.has_focus = true;
             }
 
             // 处理键盘输入
@@ -551,11 +533,13 @@ impl ScreenshotApp {
                 }
             }
         }
+        self.text_input_finalized = false;
     }
 
     fn cancel_text_input(&mut self) {
         self.text_input = None;
         self.current_annotation = None;
+        self.text_input_finalized = false;
     }
 
     fn update_selection_rect(&mut self) {
@@ -583,11 +567,6 @@ impl ScreenshotApp {
     }
 
     fn start_annotation(&mut self, pos: Pos2) {
-        let _points = if self.current_tool == Tool::Text {
-            vec![pos] // 文本工具只需要一个点
-        } else {
-            vec![pos] // 其他工具也从单个点开始
-        };
         self.current_annotation = Some(Annotation {
             tool: self.current_tool,
             points: vec![pos],
@@ -598,10 +577,11 @@ impl ScreenshotApp {
     }
 }
 
+// 标注和工具栏
 impl ScreenshotApp {
-    fn draw_toolbar(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+    fn draw_toolbar(&mut self, ctx: &egui::Context) {
         if let Some(selection_rect) = self.selection_rect {
-            let toolbar_size = Vec2::new(550.0, 60.0);
+            let toolbar_size = Vec2::new(300.0, 60.0);
             let mut toolbar_pos = self.toolbar_position;
 
             // 确保工具栏在屏幕内
@@ -614,16 +594,11 @@ impl ScreenshotApp {
             }
 
 
-
-            let toolbar_rect = Rect::from_min_size(toolbar_pos, toolbar_size);
-
             egui::Area::new(Id::from("annotation_toolbar".to_string()))
                 .fixed_pos(toolbar_pos)
                 .order(egui::Order::Foreground)
                 .show(ctx, |ui| {
-                    egui::Frame::window(ui.style())
-                        .stroke(Stroke::new(1.0, Color32::GRAY))
-                        .corner_radius(egui::CornerRadius::same(3.0 as u8))
+                    egui::Frame::NONE
                         .show(ui, |ui| {
                             ui.horizontal(|ui| {
                                 // 工具选择
@@ -639,24 +614,15 @@ impl ScreenshotApp {
                                 ui.color_edit_button_srgba(&mut self.annotation_color);
 
                                 // 画笔大小
-                                ui.add(egui::Slider::new(&mut self.brush_size, 1.0..=20.0));
+                                // ui.add(egui::Slider::new(&mut self.brush_size, 1.0..=20.0));
 
                                 ui.separator();
 
-                                // 操作按钮
-                                if ui.button("save").clicked() {
-                                    self.save_screenshot(ctx);
-                                }
 
                                 if ui.button("copy").clicked() {
                                     self.copy_to_clipboard(ctx);
                                 }
 
-                                if ui.button("cancle").clicked() {
-                                    self.show_toolbar = false;
-                                    self.selection_rect = None;
-                                    self.annotations.clear();
-                                }
                             });
                         });
                 });
@@ -686,20 +652,16 @@ impl ScreenshotApp {
         }
     }
 
+    // 文本输入
     fn draw_text_input(&mut self, ui: &mut egui::Ui) {
         if let Some(text_state) = &mut self.text_input {
             if text_state.is_active {
                 // 创建文本输入区域
-                let response = egui::Area::new(text_state.widget_id)
+                let _response = egui::Area::new(text_state.widget_id)
                     .fixed_pos(text_state.position)
                     .order(egui::Order::Foreground)
                     .show(ui.ctx(), |ui| {
-                        // 设置焦点
-                        if !text_state.has_focus {
-                            ui.memory_mut(|mem| mem.request_focus(text_state.widget_id));
-                            text_state.has_focus = true;
-                        }
-
+                        // egui::Frame::window(ui.style())
                         egui::Frame::NONE
                             .show(ui, |ui| {
                                 let text_edit = egui::TextEdit::multiline(&mut text_state.text)
@@ -709,8 +671,13 @@ impl ScreenshotApp {
                                     .min_size(Vec2::new(0.0, 30.0))
                                     .frame(false)
                                     .text_color(self.annotation_color)
-                                    .hint_text("输入文本...");
-                                let response = ui.add(text_edit);
+                                    .hint_text("");
+                                // 设置焦点
+                                if !text_state.has_focus {
+                                    ui.memory_mut(|mem| mem.request_focus(text_state.widget_id));
+                                    text_state.has_focus = true;
+                                }
+                                // 更新输入框位置
                                 if let Some(annotation) = &self.current_annotation {
                                     if let Some(&pos) = annotation.points.first() {
                                         if text_state.position != pos {
@@ -718,31 +685,10 @@ impl ScreenshotApp {
                                         }
                                     }
                                 }
+                                let response = ui.add(text_edit);
                                 response
-                            })
+                            }).inner
                     }).response;
-                // 检查是否应该结束输入
-
-                let ctx = ui.ctx();
-                if ctx.input(|i| i.pointer.primary_pressed()) {
-                    if let Some(pointer_pos) = ctx.pointer_interact_pos() {
-                        if !response.rect.contains(pointer_pos) {
-                            self.finalize_text_input();
-                        }
-                    }
-                }
-                // 如果文本输入框失去焦点，自动完成输入
-                if response.lost_focus() {
-                    self.finalize_text_input();
-                }
-                // // 更新文本输入位置（跟随当前标注位置）
-                // if let Some(annotation) = &self.current_annotation {
-                //     if let Some(&pos) = annotation.points.first() {
-                //         if text_state.position != pos {
-                //             text_state.position = pos;
-                //         }
-                //     }
-                // }
             }
         }
     }
@@ -753,7 +699,6 @@ impl ScreenshotApp {
         }
 
         let stroke = Stroke::new(annotation.stroke_width, annotation.color);
-
         match annotation.tool {
             Tool::Brush => {
                 // 绘制自由画笔
@@ -777,32 +722,15 @@ impl ScreenshotApp {
                 }
             }
             Tool::Text => {
-                // 如果有活动的文本输入，显示输入框
-                if let Some(text_state) = &self.text_input {
-                    if text_state.is_active {
-                        // 文本输入由 draw_text_input 处理，这里不重复绘制
-                        return;
-                    }
-                }
-
-                // 显示已保存的文本
+                // 显示已保存的文本（仅在文本输入不活动时）
                 if let Some(&pos) = annotation.points.first() {
                     if !annotation.text.is_empty() {
                         painter.text(
                             pos,
                             egui::Align2::LEFT_TOP,
                             annotation.text.clone(),
-                            egui::FontId::proportional(14.0),
+                            egui::FontId::proportional(16.0),
                             annotation.color,
-                        );
-                    } else {
-                        // 显示提示文本
-                        painter.text(
-                            pos,
-                            egui::Align2::LEFT_TOP,
-                            "".to_string(),
-                            egui::FontId::proportional(14.0),
-                            Color32::GRAY,
                         );
                     }
                 }
@@ -812,34 +740,46 @@ impl ScreenshotApp {
     }
 }
 
+// 处理截图
 impl ScreenshotApp {
-    fn save_screenshot(&self, ctx: &egui::Context) {
-        if let Some(selection_rect) = self.selection_rect {
-            if let Some(cropped_image) = self.crop_selection(selection_rect) {
-                // 使用文件对话框选择保存位置
-                let task = rfd::AsyncFileDialog::new()
-                    .set_title("save")
-                    .add_filter("PNG", &["png".to_string()])
-                    .add_filter("JPEG", &["jpg".to_string(), "jpeg".to_string()])
-                    .save_file();
-
-                let ctx = ctx.clone();
-                wasm_bindgen_futures::spawn_local(async move {
-                    if let Some(file) = task.await {
-                        let path = file.path();
-                        if let Err(e) = cropped_image.save(path.to_path_buf()) {
-                            eprintln!("Failed to save screenshot: {}", e);
-                        }
-                    }
-                    ctx.request_repaint();
-                });
-            }
-        }
-    }
+    // fn save_screenshot(&self, ctx: &egui::Context) {
+        // if let Some(selection_rect) = self.selection_rect {
+        //     if let Some(cropped_image) = self.crop_selection(selection_rect, &self.annotations) {
+        //         // 使用文件对话框选择保存位置
+        //         let task = rfd::AsyncFileDialog::new()
+        //             .set_title("save")
+        //             .add_filter("PNG", &["png".to_string()])
+        //             .add_filter("JPEG", &["jpg".to_string(), "jpeg".to_string()])
+        //             .save_file();
+        //
+        //         let ctx = ctx.clone();
+        //         wasm_bindgen_futures::spawn_local(async move {
+        //             if let Some(file) = task.await {
+        //                 let path = file.path();
+        //                 if let Err(e) = cropped_image.save(path.to_path_buf()) {
+        //                     eprintln!("Failed to save screenshot: {}", e);
+        //                 }
+        //             }
+        //             ctx.request_repaint();
+        //         });
+        //     }
+        // }
+    // }
 
     fn copy_to_clipboard(&self, ctx: &egui::Context) {
         if let Some(selection_rect) = self.selection_rect {
-            if let Some(cropped_image) = self.crop_selection(selection_rect) {
+
+            // 确保当前文本输入完成
+            let mut annotations = self.annotations.clone();
+            if let Some(text_state) = &self.text_input {
+                if let Some(annotation) = &self.current_annotation {
+                    let mut new_annotation = annotation.clone();
+                    new_annotation.text = text_state.text.clone();
+                    annotations.push(new_annotation);
+                }
+            }
+
+            if let Some(cropped_image) = self.crop_selection(selection_rect, &annotations) {
                 // 转换为剪贴板格式
                 if let Ok(mut clipboard) = arboard::Clipboard::new() {
                     let image_data = arboard::ImageData {
@@ -856,7 +796,7 @@ impl ScreenshotApp {
         }
     }
 
-    fn crop_selection(&self, selection_rect: Rect) -> Option<ImageBuffer<Rgba<u8>, Vec<u8>>> {
+    fn crop_selection(&self, selection_rect: Rect, annotations: &Vec<Annotation>) -> Option<ImageBuffer<Rgba<u8>, Vec<u8>>> {
         let x = selection_rect.min.x as u32;
         let y = selection_rect.min.y as u32;
         let width = selection_rect.width() as u32;
@@ -890,7 +830,7 @@ impl ScreenshotApp {
                     }
 
                     // 添加标注内容
-                    // self.add_annotations_to_image(&mut cropped_image, selection_rect);
+                    self.add_annotations_to_image(&mut cropped_image, selection_rect, annotations);
 
                     return Some(cropped_image);
                 }
@@ -898,5 +838,138 @@ impl ScreenshotApp {
         }
 
         None
+    }
+
+    fn add_annotations_to_image(&self, image: &mut ImageBuffer<Rgba<u8>, Vec<u8>>, selection_rect: Rect, annotations: &Vec<Annotation>) {
+        for annotation in annotations {
+            self.draw_single_annotation_to_image(image, annotation, selection_rect);
+        }
+    }
+
+    fn draw_single_annotation_to_image(&self, image: &mut ImageBuffer<Rgba<u8>, Vec<u8>>, annotation: &Annotation, selection_rect: Rect) {
+        if annotation.points.len() < 2 {
+            return;
+        }
+
+        // 转换为相对于裁剪图像的坐标
+        let rel_rect = Rect::from_min_size(
+            Pos2::new(selection_rect.min.x, selection_rect.min.y),
+            Vec2::new(selection_rect.width(), selection_rect.height())
+        );
+
+        let stroke_width = annotation.stroke_width as u32;
+        let color = annotation.color;
+
+        match annotation.tool {
+            Tool::Brush => {
+                // 绘制自由画笔
+                for window in annotation.points.windows(2) {
+                    if let [start, end] = window {
+                        let start_rel = Pos2::new(start.x - rel_rect.min.x, start.y - rel_rect.min.y);
+                        let end_rel = Pos2::new(end.x - rel_rect.min.x, end.y - rel_rect.min.y);
+
+                        // 绘制线条
+                        // 由于代码较长，这里只展示基本逻辑
+                        let mut x = start_rel.x as usize;
+                        let mut y = start_rel.y as usize;
+                        let dx = end_rel.x - start_rel.x;
+                        let dy = end_rel.y - start_rel.y;
+                        let steps = (dx.hypot(dy)).ceil() as usize;
+
+                        for _ in 0..steps {
+                            if x < image.width() as usize && y < image.height() as usize {
+                                image.put_pixel(x as u32, y as u32, Rgba([color.r(), color.g(), color.b(), color.a()]));
+                            }
+                            x += dx.signum() as usize;
+                            y += dy.signum() as usize;
+                        }
+                    }
+                }
+            }
+            Tool::Rectangle => {
+                // 绘制矩形
+                if let (Some(&start), Some(&end)) = (annotation.points.first(), annotation.points.last()) {
+                    let rect = Rect::from_two_pos(start, end);
+                    let rect_rel = Rect::from_min_max(
+                        Pos2::new(rect.min.x - rel_rect.min.x, rect.min.y - rel_rect.min.y),
+                        Pos2::new(rect.max.x - rel_rect.min.x, rect.max.y - rel_rect.min.y)
+                    );
+
+                    // 绘制矩形边框
+                    let x1 = rect_rel.min.x as usize;
+                    let y1 = rect_rel.min.y as usize;
+                    let x2 = rect_rel.max.x as usize;
+                    let y2 = rect_rel.max.y as usize;
+
+                    // 顶部和底部边
+                    for x in x1..=x2 {
+                        if y1 < image.height() as usize {
+                            image.put_pixel(x as u32, y1 as u32, Rgba([color.r(), color.g(), color.b(), color.a()]));
+                        }
+                        if y2 < image.height() as usize {
+                            image.put_pixel(x as u32, y2 as u32, Rgba([color.r(), color.g(), color.b(), color.a()]));
+                        }
+                    }
+
+                    // 左侧和右侧边
+                    for y in y1..=y2 {
+                        if x1 < image.width() as usize {
+                            image.put_pixel(x1 as u32, y as u32, Rgba([color.r(), color.g(), color.b(), color.a()]));
+                        }
+                        if x2 < image.width() as usize {
+                            image.put_pixel(x2 as u32, y as u32, Rgba([color.r(), color.g(), color.b(), color.a()]));
+                        }
+                    }
+                }
+            }
+            Tool::Arrow => {
+                // 绘制箭头
+                if let (Some(&start), Some(&end)) = (annotation.points.first(), annotation.points.last()) {
+                    let start_rel = Pos2::new(start.x - rel_rect.min.x, start.y - rel_rect.min.y);
+                    let end_rel = Pos2::new(end.x - rel_rect.min.x, end.y - rel_rect.min.y);
+
+                    // 绘制箭头线
+                    let mut x = start_rel.x as usize;
+                    let mut y = start_rel.y as usize;
+                    let dx = (end_rel.x - start_rel.x) as f32;
+                    let dy = (end_rel.y - start_rel.y) as f32;
+                    let steps = (dx.hypot(dy)).ceil() as usize;
+
+                    for _ in 0..steps {
+                        if x < image.width() as usize && y < image.height() as usize {
+                            image.put_pixel(x as u32, y as u32, Rgba([color.r(), color.g(), color.b(), color.a()]));
+                        }
+                        x += dx.signum() as usize;
+                        y += dy.signum() as usize;
+                    }
+
+                    // 绘制箭头头
+                    let arrow_length = 10;
+                    let arrow_angle = std::f64::consts::FRAC_PI_6; // 30 degrees in radians
+                    let arrow_head_length = 5;
+
+                    // 计算箭头头的位置
+                    let arrow_head_x = end_rel.x as usize - (arrow_head_length as f32 * dx.signum()).round() as usize;
+                    let arrow_head_y = end_rel.y as usize - (arrow_head_length as f32 * dy.signum()).round() as usize;
+
+                    // 绘制箭头头
+                    if arrow_head_x < image.width() as usize && arrow_head_y < image.height() as usize {
+                        image.put_pixel(arrow_head_x as u32, arrow_head_y as u32, Rgba([color.r(), color.g(), color.b(), color.a()]));
+                    }
+                }
+            }
+            Tool::Text => {
+                // 绘制文本
+                if let Some(&pos) = annotation.points.first() {
+                    let pos_rel = Pos2::new(pos.x - rel_rect.min.x, pos.y - rel_rect.min.y);
+
+                    if !annotation.text.is_empty() {
+                        // 这里应添加文本绘制逻辑
+                        // 由于文本绘制较复杂，这里省略具体实现
+                    }
+                }
+            }
+            _ => {}
+        }
     }
 }
