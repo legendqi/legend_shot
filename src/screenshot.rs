@@ -1,6 +1,6 @@
 use eframe::App;
 use eframe::epaint::StrokeKind;
-use egui::{Color32, Id, Pos2, Rect, Stroke, Vec2};
+use egui::{Color32, Id, Pos2, Rect, Shape, Stroke, Vec2};
 use image::{ImageBuffer, Rgba};
 use xcap::{Monitor};
 
@@ -39,7 +39,7 @@ impl TextInputState {
             position,
             text: String::new(),
             is_active: true,
-            widget_id: Id::new("text_input".to_string()), // 使用固定ID或生成唯一ID
+            widget_id: Id::new(format!("text_input_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos())), // 使用固定ID或生成唯一ID
             has_focus: false,
         }
     }
@@ -321,17 +321,15 @@ impl ScreenshotApp {
                 self.selection_end = pointer_pos;
             } else if self.current_tool == Tool::MoveBox && self.selection_rect.is_some() {
                 // 开始移动选择框
-                self.is_moving_box = true;
-                self.move_start = pointer_pos;
-                // 保存选择框的原始位置
-                self.original_selection_rect = self.selection_rect;
+                if self.selection_rect.unwrap().contains(pointer_pos) {
+                    self.is_moving_box = true;
+                    self.move_start = pointer_pos;
+                    // 保存选择框的原始位置
+                    self.original_selection_rect = self.selection_rect;
+                }
             } else if self.current_tool != Tool::Select && self.current_tool != Tool::MoveBox {
                 // 检查是否在选择区域内才允许开始标注
                 if let Some(selection_rect) = self.selection_rect {
-                    if self.text_input.is_some() || self.current_tool == Tool::Text {
-                        // 创建文本输入状态
-                        self.finalize_text_input();
-                    }
                     if selection_rect.contains(pointer_pos) {
                         // 如果是文本工具，开始文本输入
                         if self.current_tool == Tool::Text {
@@ -341,10 +339,18 @@ impl ScreenshotApp {
                                 self.text_input = Some(text_state);
                                 self.text_input_finalized = false;
                                 self.start_annotation(pointer_pos);
+                            } else {
+                                self.finalize_text_input();
                             }
                         } else {
                             // 否则，开始标注
                             self.start_annotation(pointer_pos);
+                        }
+                    } else {
+                        // 点击区域外的地方, 取消文本输入
+                        if self.text_input.is_some() || self.current_tool == Tool::Text {
+                            // 创建文本输入状态
+                            self.finalize_text_input();
                         }
                     }
                 }
@@ -656,8 +662,11 @@ impl ScreenshotApp {
     fn draw_text_input(&mut self, ui: &mut egui::Ui) {
         if let Some(text_state) = &mut self.text_input {
             if text_state.is_active {
+                let max_x = self.selection_end.x;
+                let current_x = text_state.position.x;
+                let desired_width = (max_x - current_x).max(max_x - current_x);
                 // 创建文本输入区域
-                let _response = egui::Area::new(text_state.widget_id)
+                let text_response = egui::Area::new(text_state.widget_id)
                     .fixed_pos(text_state.position)
                     .order(egui::Order::Foreground)
                     .show(ui.ctx(), |ui| {
@@ -666,12 +675,14 @@ impl ScreenshotApp {
                             .show(ui, |ui| {
                                 let text_edit = egui::TextEdit::multiline(&mut text_state.text)
                                     .font(egui::FontId::proportional(16.0))
-                                    .desired_width(200.0)
+                                    .desired_width(desired_width)
                                     .desired_rows(1)
-                                    .min_size(Vec2::new(0.0, 30.0))
-                                    .frame(false)
+                                    .min_size(Vec2::ZERO)
+                                    .frame(true)
                                     .text_color(self.annotation_color)
-                                    .hint_text("");
+                                    .lock_focus(true)
+                                    .hint_text("")
+                                    .id(text_state.widget_id);
                                 // 设置焦点
                                 if !text_state.has_focus {
                                     ui.memory_mut(|mem| mem.request_focus(text_state.widget_id));
@@ -689,6 +700,13 @@ impl ScreenshotApp {
                                 response
                             }).inner
                     }).response;
+                if text_response.lost_focus() && text_state.has_focus {
+                    ui.memory_mut(|mem| mem.request_focus(text_state.widget_id));
+                }
+                // 确保光标持续可见
+                if text_state.has_focus {
+                    ui.ctx().request_repaint(); // 确保光标闪烁动画持续
+                }
             }
         }
     }
@@ -718,20 +736,64 @@ impl ScreenshotApp {
             Tool::Arrow => {
                 // 绘制箭头
                 if let (Some(&start), Some(&end)) = (annotation.points.first(), annotation.points.last()) {
-                    painter.arrow(start, end - start, stroke);
+                    // painter.arrow(start, end - start, stroke);
+                    // 1️⃣ 先画箭杆（线，和原来一样）
+                    painter.line_segment([start, end], stroke);
+
+                    // 2️⃣ 计算箭头头的三个点（实心三角形！）
+                    let dir = end - start;
+                    let dir_len = dir.length();
+                    if dir_len < 1.0 { return; } // 防止太短
+
+                    let dir_norm = dir / dir_len; // 方向单位向量
+
+                    // ✅ 修正：手动计算垂直向量（egui中没有perp()方法）
+                    let perp = Vec2::new(-dir_norm.y, dir_norm.x); // 旋转90度
+
+                    // 箭头尺寸（可调，我设了10x5，你按需改）
+                    let arrow_length = 15.0;
+                    let arrow_width = 5.0;
+
+                    let tip = end; // 箭头尖端
+                    let left = end - dir_norm * arrow_length + perp * arrow_width;
+                    let right = end - dir_norm * arrow_length - perp * arrow_width;
+
+                    // 3️⃣ 用凸多边形实心填充箭头头
+                    painter.add(Shape::convex_polygon(
+                        vec![tip, left, right],
+                        annotation.color,
+                        Stroke::NONE,
+                    ));
                 }
             }
             Tool::Text => {
                 // 显示已保存的文本（仅在文本输入不活动时）
                 if let Some(&pos) = annotation.points.first() {
                     if !annotation.text.is_empty() {
-                        painter.text(
-                            pos,
-                            egui::Align2::LEFT_TOP,
-                            annotation.text.clone(),
-                            egui::FontId::proportional(16.0),
-                            annotation.color,
-                        );
+                        // 按换行符分割文本
+                        let lines: Vec<&str> = annotation.text.lines().collect();
+                        let line_height = 16.0; // 与字体大小一致
+                        // 逐行绘制
+                        for (i, line) in lines.iter().enumerate() {
+                            painter.text(
+                                Pos2::new(
+                                    pos.x + 4f32,
+                                    pos.y + (i as f32) * line_height + 2f32, // 逐行下移
+                                ),
+                                // x和y加的4和2为为了避免文本向左上角移动
+                                egui::Align2::LEFT_TOP,
+                                line.to_string(),
+                                egui::FontId::proportional(16.0),
+                                annotation.color,
+                            );
+                        }
+                        // painter.text(
+                        //     pos,
+                        //     egui::Align2::LEFT_TOP,
+                        //     annotation.text.clone(),
+                        //     egui::FontId::proportional(16.0),
+                        //     annotation.color,
+                        // );
                     }
                 }
             }
