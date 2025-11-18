@@ -1,3 +1,4 @@
+use arboard::Clipboard;
 use eframe::App;
 use eframe::epaint::StrokeKind;
 use egui::{Color32, Id, Pos2, Rect, Shape, Stroke, Vec2};
@@ -225,7 +226,7 @@ impl ScreenshotApp {
                         combined_bounds.min,
                         Pos2::new(combined_bounds.max.x, clipped_selection.min.y)
                     );
-                    ui.painter().add(egui::Shape::rect_filled(
+                    ui.painter().add(Shape::rect_filled(
                         top_rect,
                         egui::CornerRadius::ZERO,
                         overlay_color,
@@ -238,7 +239,7 @@ impl ScreenshotApp {
                         Pos2::new(combined_bounds.min.x, clipped_selection.max.y),
                         combined_bounds.max
                     );
-                    ui.painter().add(egui::Shape::rect_filled(
+                    ui.painter().add(Shape::rect_filled(
                         bottom_rect,
                         egui::CornerRadius::ZERO,
                         overlay_color,
@@ -251,7 +252,7 @@ impl ScreenshotApp {
                         Pos2::new(combined_bounds.min.x, clipped_selection.min.y),
                         Pos2::new(clipped_selection.min.x, clipped_selection.max.y)
                     );
-                    ui.painter().add(egui::Shape::rect_filled(
+                    ui.painter().add(Shape::rect_filled(
                         left_rect,
                         egui::CornerRadius::ZERO,
                         overlay_color,
@@ -264,7 +265,7 @@ impl ScreenshotApp {
                         Pos2::new(clipped_selection.max.x, clipped_selection.min.y),
                         Pos2::new(combined_bounds.max.x, clipped_selection.max.y)
                     );
-                    ui.painter().add(egui::Shape::rect_filled(
+                    ui.painter().add(Shape::rect_filled(
                         right_rect,
                         egui::CornerRadius::ZERO,
                         overlay_color,
@@ -272,7 +273,7 @@ impl ScreenshotApp {
                 }
 
                 // 绘制选择框边框
-                ui.painter().add(egui::Shape::rect_stroke(
+                ui.painter().add(Shape::rect_stroke(
                     clipped_selection,
                     egui::CornerRadius::ZERO,
                     Stroke::new(2.0, Color32::RED),
@@ -280,7 +281,7 @@ impl ScreenshotApp {
                 ));
             } else {
                 // 选择区域完全在边界外，绘制完整覆盖层
-                ui.painter().add(egui::Shape::rect_filled(
+                ui.painter().add(Shape::rect_filled(
                     combined_bounds,
                     egui::CornerRadius::ZERO,
                     Color32::from_rgba_unmultiplied(0, 0, 0, 100),
@@ -288,7 +289,7 @@ impl ScreenshotApp {
             }
         } else {
             // 没有选择时绘制完整覆盖层
-            ui.painter().add(egui::Shape::rect_filled(
+            ui.painter().add(Shape::rect_filled(
                 combined_bounds,
                 egui::CornerRadius::ZERO,
                 Color32::from_rgba_unmultiplied(0, 0, 0, 100),
@@ -323,6 +324,7 @@ impl ScreenshotApp {
                 // 开始移动选择框
                 if self.selection_rect.unwrap().contains(pointer_pos) {
                     self.is_moving_box = true;
+                    self.show_toolbar = false;
                     self.move_start = pointer_pos;
                     // 保存选择框的原始位置
                     self.original_selection_rect = self.selection_rect;
@@ -428,6 +430,10 @@ impl ScreenshotApp {
 
                     self.selection_rect = Some(new_rect);
 
+                    // ✅ 更新 selection_start 和 selection_end
+                    self.selection_start = new_rect.min;
+                    self.selection_end = new_rect.max;
+
                     // 更新工具栏位置
                     self.update_toolbar_position(new_rect);
                 }
@@ -456,6 +462,7 @@ impl ScreenshotApp {
                 }
             } else if self.is_moving_box && self.current_tool == Tool::MoveBox {
                 self.is_moving_box = false;
+                self.show_toolbar = true;
                 self.original_selection_rect = None;
             } else if let Some(annotation) = &self.current_annotation {
                 // 对于非文本工具，直接完成标注
@@ -587,16 +594,34 @@ impl ScreenshotApp {
 impl ScreenshotApp {
     fn draw_toolbar(&mut self, ctx: &egui::Context) {
         if let Some(selection_rect) = self.selection_rect {
-            let toolbar_size = Vec2::new(300.0, 60.0);
-            let mut toolbar_pos = self.toolbar_position;
+            let toolbar_size = Vec2::new(100.0, 40.0);
+            // 计算工具栏位置：在选择框右下角，并与选择框右对齐
+            let mut toolbar_pos = Pos2::new(
+                selection_rect.max.x - toolbar_size.x, // 右对齐：工具栏右侧与选择框右侧对齐
+                selection_rect.max.y,                  // 在选择框下方
+            );
 
             // 确保工具栏在屏幕内
-            let screen_size = ctx.viewport_rect().size();
-            if toolbar_pos.x + toolbar_size.x > screen_size.x {
-                toolbar_pos.x = selection_rect.min.x - toolbar_size.x;
+            let screen_rect = ctx.viewport_rect();
+            
+            // 如果工具栏超出右边界，向左调整
+            if toolbar_pos.x + toolbar_size.x > screen_rect.max.x {
+                toolbar_pos.x = screen_rect.max.x - toolbar_size.x;
             }
-            if toolbar_pos.y + toolbar_size.y > screen_size.y {
+            
+            // 如果工具栏超出左边界，确保至少显示一部分
+            if toolbar_pos.x < screen_rect.min.x {
+                toolbar_pos.x = screen_rect.min.x;
+            }
+            
+            // 如果工具栏超出下边界，显示在选择框上方
+            if toolbar_pos.y + toolbar_size.y > screen_rect.max.y {
                 toolbar_pos.y = selection_rect.min.y - toolbar_size.y;
+            }
+            
+            // 如果工具栏超出上边界，确保至少显示一部分
+            if toolbar_pos.y < screen_rect.min.y {
+                toolbar_pos.y = screen_rect.min.y;
             }
 
 
@@ -700,9 +725,6 @@ impl ScreenshotApp {
                                 response
                             }).inner
                     }).response;
-                if text_response.lost_focus() && text_state.has_focus {
-                    ui.memory_mut(|mem| mem.request_focus(text_state.widget_id));
-                }
                 // 确保光标持续可见
                 if text_state.has_focus {
                     ui.ctx().request_repaint(); // 确保光标闪烁动画持续
@@ -827,7 +849,6 @@ impl ScreenshotApp {
         //     }
         // }
     // }
-
     fn copy_to_clipboard(&self, ctx: &egui::Context) {
         if let Some(selection_rect) = self.selection_rect {
 
@@ -843,7 +864,7 @@ impl ScreenshotApp {
 
             if let Some(cropped_image) = self.crop_selection(selection_rect, &annotations) {
                 // 转换为剪贴板格式
-                if let Ok(mut clipboard) = arboard::Clipboard::new() {
+                if let Ok(mut clipboard) = Clipboard::new() {
                     let image_data = arboard::ImageData {
                         width: cropped_image.width() as usize,
                         height: cropped_image.height() as usize,
@@ -863,6 +884,12 @@ impl ScreenshotApp {
         let y = selection_rect.min.y as u32;
         let width = selection_rect.width() as u32;
         let height = selection_rect.height() as u32;
+        // 创建新的图像缓冲区 - 直接使用选择框的大小
+        let mut cropped_image: ImageBuffer<Rgba<u8>, Vec<u8>> = ImageBuffer::new(width, height);
+        // 用白色背景填充
+        for pixel in cropped_image.pixels_mut() {
+            *pixel = Rgba([255, 255, 255, 255]);
+        }
 
         // 查找包含选择区域的屏幕
         for (screen, screenshot) in self.screens.iter().zip(&self.screenshots) {
@@ -879,7 +906,6 @@ impl ScreenshotApp {
                     // 创建新的图像缓冲区
                     let mut cropped_image: ImageBuffer<Rgba<u8>, Vec<u8>> = ImageBuffer::new(crop_width, crop_height);
 
-                    // 复制原始截图内容
                     // 复制原始截图内容
                     for src_y in rel_y..(rel_y + crop_height) {
                         for src_x in rel_x..(rel_x + crop_width) {
@@ -898,7 +924,6 @@ impl ScreenshotApp {
                 }
             }
         }
-
         None
     }
 
