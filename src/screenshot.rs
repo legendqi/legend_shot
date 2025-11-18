@@ -1,9 +1,10 @@
 use arboard::Clipboard;
+use device_query::{DeviceQuery, DeviceState, MousePosition};
 use eframe::App;
 use eframe::epaint::StrokeKind;
 use egui::{Color32, Id, Pos2, Rect, Shape, Stroke, Vec2};
 use image::{ImageBuffer, Rgba};
-use xcap::{Monitor};
+use xcap::{Monitor, Window};
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 enum Tool {
@@ -46,6 +47,11 @@ impl TextInputState {
     }
 }
 
+pub struct MouseDistance {
+    pub x: i32,
+    pub y: i32,
+}
+
 pub struct ScreenshotApp {
     screens: Vec<Monitor>,
     screenshots: Vec<ImageBuffer<Rgba<u8>, Vec<u8>>>,
@@ -58,8 +64,11 @@ pub struct ScreenshotApp {
     is_selecting: bool,
     selection_start: Pos2,
     selection_end: Pos2,
+    mouse_start: MousePosition, // 添加鼠标位置变量 窗口中鼠标位置和屏幕中鼠标位置的坐标不一样，导致最后截图不对，故添加此参数
+    mouse_end: MousePosition, // 添加鼠标位置变量 窗口中鼠标位置和屏幕中鼠标位置的坐标不一样，导致最后截图不对，故添加此参数
     is_moving_box: bool,
     move_start: Pos2,
+    mouse_move_start: MousePosition,
 
     // 标注状态
     current_tool: Tool,
@@ -77,6 +86,7 @@ pub struct ScreenshotApp {
 
     // 新增：文本输入完成标记
     text_input_finalized: bool,
+    device_state: DeviceState
 }
 
 impl Default for ScreenshotApp {
@@ -90,8 +100,11 @@ impl Default for ScreenshotApp {
             is_selecting: false,
             selection_start: Pos2::ZERO,
             selection_end: Pos2::ZERO,
+            mouse_start: MousePosition::default(),
+            mouse_end: MousePosition::default(),
             is_moving_box: false,
             move_start: Pos2::ZERO,
+            mouse_move_start: MousePosition::default(),
             current_tool: Tool::Select,
             annotations: Vec::new(),
             current_annotation: None,
@@ -102,6 +115,7 @@ impl Default for ScreenshotApp {
             toolbar_position: Pos2::ZERO,
             window_rect: Rect::NOTHING,
             text_input_finalized: false,
+            device_state: DeviceState::new(),
         }
     }
 }
@@ -300,7 +314,7 @@ impl ScreenshotApp {
 
     fn handle_input(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         let pointer_pos = ui.input(|i| i.pointer.interact_pos()).unwrap_or(Pos2::ZERO);
-
+        let mouse_pos = self.device_state.get_mouse().coords;
         // 如果有活动的文本输入，优先处理文本输入
         if let Some(text_state) = &mut self.text_input {
             if text_state.is_active {
@@ -320,12 +334,15 @@ impl ScreenshotApp {
                 self.is_selecting = true;
                 self.selection_start = pointer_pos;
                 self.selection_end = pointer_pos;
+                self.mouse_start = mouse_pos;
+                self.mouse_end = mouse_pos;
             } else if self.current_tool == Tool::MoveBox && self.selection_rect.is_some() {
                 // 开始移动选择框
                 if self.selection_rect.unwrap().contains(pointer_pos) {
                     self.is_moving_box = true;
                     self.show_toolbar = false;
                     self.move_start = pointer_pos;
+                    self.mouse_move_start = mouse_pos;
                     // 保存选择框的原始位置
                     self.original_selection_rect = self.selection_rect;
                 }
@@ -399,12 +416,20 @@ impl ScreenshotApp {
         if ui.input(|i| i.pointer.primary_down()) {
             if self.is_selecting {
                 self.selection_end = pointer_pos;
+                self.mouse_end = mouse_pos;
                 self.update_selection_rect();
             } else if self.is_moving_box {
                 // 移动选择框 - 基于原始位置计算偏移
                 if let (Some(original_rect), Some(combined_bounds)) = (self.original_selection_rect, Some(self.get_combined_bounds())) {
                     let delta = pointer_pos - self.move_start;
-
+                    let mouse_delta = MouseDistance {
+                        x: mouse_pos.0 - self.mouse_move_start.0,
+                        y: mouse_pos.1 - self.mouse_move_start.1,
+                    };
+                    self.mouse_start.0 += mouse_delta.x;
+                    self.mouse_start.1 += mouse_delta.y;
+                    self.mouse_end.0 += mouse_delta.x;
+                    self.mouse_end.1 += mouse_delta.y;
                     // 应用偏移到原始位置
                     let mut new_rect = original_rect;
                     new_rect.min += delta;
@@ -452,6 +477,7 @@ impl ScreenshotApp {
             if self.is_selecting {
                 self.is_selecting = false;
                 self.selection_end = pointer_pos;
+                self.mouse_end = mouse_pos;
                 self.update_selection_rect();
 
                 if let Some(rect) = self.selection_rect {
@@ -826,6 +852,7 @@ impl ScreenshotApp {
 
 // 处理截图
 impl ScreenshotApp {
+
     // fn save_screenshot(&self, ctx: &egui::Context) {
         // if let Some(selection_rect) = self.selection_rect {
         //     if let Some(cropped_image) = self.crop_selection(selection_rect, &self.annotations) {
@@ -849,6 +876,7 @@ impl ScreenshotApp {
         //     }
         // }
     // }
+
     fn copy_to_clipboard(&self, ctx: &egui::Context) {
         if let Some(selection_rect) = self.selection_rect {
 
@@ -880,10 +908,11 @@ impl ScreenshotApp {
     }
 
     fn crop_selection(&self, selection_rect: Rect, annotations: &Vec<Annotation>) -> Option<ImageBuffer<Rgba<u8>, Vec<u8>>> {
-        let x = selection_rect.min.x as u32;
-        let y = selection_rect.min.y as u32;
-        let width = selection_rect.width() as u32;
-        let height = selection_rect.height() as u32;
+
+        let x = self.mouse_start.0 as u32;
+        let y = self.mouse_start.1 as u32;
+        let width = self.mouse_end.0 as u32 - x;
+        let height = self.mouse_end.1 as u32 - y;
         // 创建新的图像缓冲区 - 直接使用选择框的大小
         let mut cropped_image: ImageBuffer<Rgba<u8>, Vec<u8>> = ImageBuffer::new(width, height);
         // 用白色背景填充
@@ -897,20 +926,16 @@ impl ScreenshotApp {
 
             if screen_rect.contains(selection_rect.center()) {
                 // 计算在屏幕图像中的相对位置
-                let rel_x = (x - screen.x().unwrap() as u32).max(0);
-                let rel_y = (y - screen.y().unwrap() as u32).max(0);
-                let crop_width = width.min(screen.width().unwrap() - rel_x);
-                let crop_height = height.min(screen.height().unwrap() - rel_y);
 
-                if crop_width > 0 && crop_height > 0 {
+                if width > 0 && height > 0 {
                     // 创建新的图像缓冲区
-                    let mut cropped_image: ImageBuffer<Rgba<u8>, Vec<u8>> = ImageBuffer::new(crop_width, crop_height);
+                    let mut cropped_image: ImageBuffer<Rgba<u8>, Vec<u8>> = ImageBuffer::new(width, height);
 
                     // 复制原始截图内容
-                    for src_y in rel_y..(rel_y + crop_height) {
-                        for src_x in rel_x..(rel_x + crop_width) {
-                            let dst_x = src_x - rel_x;
-                            let dst_y = src_y - rel_y;
+                    for src_y in y..(y + height) {
+                        for src_x in x..(x + width) {
+                            let dst_x = src_x - x;
+                            let dst_y = src_y - y;
 
                             let pixel = screenshot.get_pixel(src_x, src_y);
                             cropped_image.put_pixel(dst_x, dst_y, pixel.clone());
