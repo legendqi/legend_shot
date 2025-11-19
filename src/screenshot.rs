@@ -47,28 +47,26 @@ impl TextInputState {
     }
 }
 
-pub struct MouseDistance {
-    pub x: i32,
-    pub y: i32,
-}
 
 pub struct ScreenshotApp {
     screens: Vec<Monitor>,
     screenshots: Vec<ImageBuffer<Rgba<u8>, Vec<u8>>>,
     display_textures: Vec<egui::TextureHandle>,
     original_selection_rect: Option<Rect>,
+    mouse_original_selection_rect: Option<Rect>,
 
 
     // 选择状态
     selection_rect: Option<Rect>,
+    mouse_selection_rect: Option<Rect>,
     is_selecting: bool,
     selection_start: Pos2,
     selection_end: Pos2,
-    mouse_start: MousePosition, // 添加鼠标位置变量 窗口中鼠标位置和屏幕中鼠标位置的坐标不一样，导致最后截图不对，故添加此参数
-    mouse_end: MousePosition, // 添加鼠标位置变量 窗口中鼠标位置和屏幕中鼠标位置的坐标不一样，导致最后截图不对，故添加此参数
+    mouse_start: Pos2, // 添加鼠标位置变量 窗口中鼠标位置和屏幕中鼠标位置的坐标不一样，导致最后截图不对，故添加此参数
+    mouse_end: Pos2, // 添加鼠标位置变量 窗口中鼠标位置和屏幕中鼠标位置的坐标不一样，导致最后截图不对，故添加此参数
     is_moving_box: bool,
     move_start: Pos2,
-    mouse_move_start: MousePosition,
+    mouse_move_start: Pos2,
 
     // 标注状态
     current_tool: Tool,
@@ -86,7 +84,10 @@ pub struct ScreenshotApp {
 
     // 新增：文本输入完成标记
     text_input_finalized: bool,
-    device_state: DeviceState
+    device_state: DeviceState,
+
+    screen_with: u32, // 屏幕宽度
+    screen_height: u32, // 屏幕高度
 }
 
 impl Default for ScreenshotApp {
@@ -96,15 +97,17 @@ impl Default for ScreenshotApp {
             screenshots: Vec::new(),
             display_textures: Vec::new(),
             original_selection_rect: None,
+            mouse_original_selection_rect: None,
             selection_rect: None,
+            mouse_selection_rect: None,
             is_selecting: false,
             selection_start: Pos2::ZERO,
             selection_end: Pos2::ZERO,
-            mouse_start: MousePosition::default(),
-            mouse_end: MousePosition::default(),
+            mouse_start: Pos2::ZERO,
+            mouse_end: Pos2::ZERO,
             is_moving_box: false,
             move_start: Pos2::ZERO,
-            mouse_move_start: MousePosition::default(),
+            mouse_move_start: Pos2::ZERO,
             current_tool: Tool::Select,
             annotations: Vec::new(),
             current_annotation: None,
@@ -116,6 +119,8 @@ impl Default for ScreenshotApp {
             window_rect: Rect::NOTHING,
             text_input_finalized: false,
             device_state: DeviceState::new(),
+            screen_with: 0,
+            screen_height: 0,
         }
     }
 }
@@ -128,7 +133,8 @@ impl ScreenshotApp {
 
         for screen in &self.screens {
             let image = screen.capture_image()?;
-
+            self.screen_with = image.width();
+            self.screen_height = image.height();
             // 转换为 image crate 的格式
             let img_buffer = ImageBuffer::from_raw(
                 image.width(),
@@ -169,6 +175,29 @@ impl ScreenshotApp {
             min_y = min_y.min(screen.y().unwrap());
             max_x = max_x.max(screen.x().unwrap() + screen.width().unwrap() as i32);
             max_y = max_y.max(screen.y().unwrap() + screen.height().unwrap() as i32);
+        }
+
+        Rect::from_min_max(
+            Pos2::new(min_x as f32, min_y as f32),
+            Pos2::new(max_x as f32, max_y as f32),
+        )
+    }
+
+    fn get_mouse_combined_bounds(&self) -> Rect {
+        if self.screens.is_empty() {
+            return Rect::NOTHING;
+        }
+
+        let mut min_x = i32::MAX;
+        let mut min_y = i32::MAX;
+        let mut max_x = i32::MIN;
+        let mut max_y = i32::MIN;
+
+        for screen in &self.screens {
+            min_x = min_x.min(screen.x().unwrap());
+            min_y = min_y.min(screen.y().unwrap());
+            max_x = max_x.max(screen.x().unwrap() + self.screen_with as i32);
+            max_y = max_y.max(screen.y().unwrap() + self.screen_height as i32);
         }
 
         Rect::from_min_max(
@@ -334,17 +363,18 @@ impl ScreenshotApp {
                 self.is_selecting = true;
                 self.selection_start = pointer_pos;
                 self.selection_end = pointer_pos;
-                self.mouse_start = mouse_pos;
-                self.mouse_end = mouse_pos;
+                self.mouse_start = Pos2::new(mouse_pos.0 as f32, mouse_pos.1 as f32);
+                self.mouse_end = Pos2::new(mouse_pos.0 as f32, mouse_pos.1 as f32);
             } else if self.current_tool == Tool::MoveBox && self.selection_rect.is_some() {
                 // 开始移动选择框
                 if self.selection_rect.unwrap().contains(pointer_pos) {
                     self.is_moving_box = true;
                     self.show_toolbar = false;
                     self.move_start = pointer_pos;
-                    self.mouse_move_start = mouse_pos;
+                    self.mouse_move_start = Pos2::new(mouse_pos.0 as f32, mouse_pos.1 as f32);
                     // 保存选择框的原始位置
                     self.original_selection_rect = self.selection_rect;
+                    self.mouse_original_selection_rect = self.mouse_selection_rect;
                 }
             } else if self.current_tool != Tool::Select && self.current_tool != Tool::MoveBox {
                 // 检查是否在选择区域内才允许开始标注
@@ -416,48 +446,66 @@ impl ScreenshotApp {
         if ui.input(|i| i.pointer.primary_down()) {
             if self.is_selecting {
                 self.selection_end = pointer_pos;
-                self.mouse_end = mouse_pos;
+                self.mouse_end = Pos2::new(mouse_pos.0 as f32, mouse_pos.1 as f32);
+
                 self.update_selection_rect();
             } else if self.is_moving_box {
                 // 移动选择框 - 基于原始位置计算偏移
-                if let (Some(original_rect), Some(combined_bounds)) = (self.original_selection_rect, Some(self.get_combined_bounds())) {
+                if let (Some(original_rect), Some(mouse_original_rect), Some(combined_bounds)) = (self.original_selection_rect, self.mouse_original_selection_rect, Some(self.get_combined_bounds())) {
                     let delta = pointer_pos - self.move_start;
-                    let mouse_delta = MouseDistance {
-                        x: mouse_pos.0 - self.mouse_move_start.0,
-                        y: mouse_pos.1 - self.mouse_move_start.1,
-                    };
-                    self.mouse_start.0 += mouse_delta.x;
-                    self.mouse_start.1 += mouse_delta.y;
-                    self.mouse_end.0 += mouse_delta.x;
-                    self.mouse_end.1 += mouse_delta.y;
+                    let mouse_delta = Pos2::new(mouse_pos.0 as f32, mouse_pos.1 as f32) - self.mouse_move_start;
                     // 应用偏移到原始位置
                     let mut new_rect = original_rect;
+                    let mut new_mouse_rect = mouse_original_rect;
                     new_rect.min += delta;
                     new_rect.max += delta;
+
+                    new_mouse_rect.min += mouse_delta;
+                    new_mouse_rect.max += mouse_delta;
 
                     // 限制选择框在屏幕范围内
                     new_rect.min = new_rect.min.max(combined_bounds.min);
                     new_rect.max = new_rect.max.min(combined_bounds.max);
 
+                    new_mouse_rect.min = new_mouse_rect.min.max(Pos2::new(0.0, 0.0));
+                    new_mouse_rect.max = new_mouse_rect.max.min(Pos2::new(self.screen_with as f32, self.screen_height as f32));
+
                     // 确保选择框大小不变
                     let width = original_rect.width();
                     let height = original_rect.height();
+
+                    let mouse_width = mouse_original_rect.width();
+                    let mouse_height = mouse_original_rect.height();
                     // 限制选择框在屏幕范围内，考虑选择框的大小
                     let max_x = combined_bounds.max.x - width;
                     let max_y = combined_bounds.max.y - height;
 
+                    let max_mouse_x = self.screen_with as f32 - mouse_width;
+                    let max_mouse_y = self.screen_height as f32 - mouse_height;
+
                     new_rect.min.x = new_rect.min.x.clamp(combined_bounds.min.x, max_x);
                     new_rect.min.y = new_rect.min.y.clamp(combined_bounds.min.y, max_y);
+
+                    new_mouse_rect.min.x = new_mouse_rect.min.x.clamp(0.0, max_mouse_x);
+                    new_mouse_rect.min.y = new_mouse_rect.min.y.clamp(0.0, max_mouse_y);
 
                     // 根据调整后的min重新计算max
                     new_rect.max.x = new_rect.min.x + width;
                     new_rect.max.y = new_rect.min.y + height;
 
+                    new_mouse_rect.max.x = new_mouse_rect.min.x + mouse_width;
+                    new_mouse_rect.max.y = new_mouse_rect.min.y + mouse_height;
+
                     self.selection_rect = Some(new_rect);
+                    self.mouse_selection_rect = Some(new_mouse_rect);
 
                     // ✅ 更新 selection_start 和 selection_end
                     self.selection_start = new_rect.min;
                     self.selection_end = new_rect.max;
+
+                    self.mouse_start = new_mouse_rect.min;
+                    self.mouse_end = new_mouse_rect.max;
+                    println!("mouse_start: {:?}, mouse_end: {:?}", self.mouse_start, self.mouse_end);
 
                     // 更新工具栏位置
                     self.update_toolbar_position(new_rect);
@@ -477,9 +525,8 @@ impl ScreenshotApp {
             if self.is_selecting {
                 self.is_selecting = false;
                 self.selection_end = pointer_pos;
-                self.mouse_end = mouse_pos;
+                self.mouse_end = Pos2::new(mouse_pos.0 as f32, mouse_pos.1 as f32);
                 self.update_selection_rect();
-
                 if let Some(rect) = self.selection_rect {
                     if rect.area() > 100.0 { // 最小区域阈值
                         self.show_toolbar = true;
@@ -487,9 +534,29 @@ impl ScreenshotApp {
                     }
                 }
             } else if self.is_moving_box && self.current_tool == Tool::MoveBox {
+                // let mut current_pos = mouse_pos;
+                // let x_distance = current_pos.0 - self.mouse_move_start.0;
+                // let y_distance = current_pos.1 - self.mouse_move_start.1;
+                // println!("mouse_start: {:?}, mouse_end: {:?}", self.mouse_start, self.mouse_end);
+                // println!("x_distance: {}, y_distance: {}", x_distance, y_distance);
+                // self.mouse_start.0 += x_distance;
+                // self.mouse_start.1 += y_distance;
+                // self.mouse_end.0 += x_distance;
+                // self.mouse_end.1 += y_distance;
+                // self.mouse_start.0 = self.mouse_start.0.min((self.screen_with - 1) as i32);
+                // self.mouse_start.0 = self.mouse_start.0.max(0);
+                // self.mouse_start.1 = self.mouse_start.1.min((self.screen_height - 1) as i32);
+                // self.mouse_start.1 = self.mouse_start.1.max(0);
+                // self.mouse_end.0 = self.mouse_end.0.min((self.screen_with - 1) as i32);
+                // self.mouse_end.0 = self.mouse_end.0.max(0);
+                // self.mouse_end.1 = self.mouse_end.1.min((self.screen_height - 1) as i32);
+                // self.mouse_end.1 = self.mouse_end.1.max(0);
+                //
+                // println!("mouse_start: {:?}, mouse_end: {:?}", self.mouse_start, self.mouse_end);
                 self.is_moving_box = false;
                 self.show_toolbar = true;
                 self.original_selection_rect = None;
+                self.mouse_original_selection_rect = None;
             } else if let Some(annotation) = &self.current_annotation {
                 // 对于非文本工具，直接完成标注
                 if self.current_tool != Tool::Text {
@@ -513,6 +580,7 @@ impl ScreenshotApp {
             if self.show_toolbar {
                 self.show_toolbar = false;
                 self.selection_rect = None;
+                self.mouse_selection_rect = None;
             } else {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             }
@@ -586,6 +654,16 @@ impl ScreenshotApp {
         let min_y = self.selection_start.y.min(self.selection_end.y);
         let max_x = self.selection_start.x.max(self.selection_end.x);
         let max_y = self.selection_start.y.max(self.selection_end.y);
+
+        let mouse_min_x = self.mouse_start.x.min(self.mouse_end.x);
+        let mouse_min_y = self.mouse_start.y.min(self.mouse_end.y);
+        let mouse_max_x = self.mouse_start.x.max(self.mouse_end.x);
+        let mouse_max_y = self.mouse_start.y.max(self.mouse_end.x);
+
+        self.mouse_selection_rect = Some(Rect::from_min_max(
+            Pos2::new(mouse_min_x, mouse_min_y),
+            Pos2::new(mouse_max_x, mouse_max_y),
+        ));
 
         self.selection_rect = Some(Rect::from_min_max(
             Pos2::new(min_x, min_y),
@@ -909,10 +987,10 @@ impl ScreenshotApp {
 
     fn crop_selection(&self, selection_rect: Rect, annotations: &Vec<Annotation>) -> Option<ImageBuffer<Rgba<u8>, Vec<u8>>> {
 
-        let x = self.mouse_start.0 as u32;
-        let y = self.mouse_start.1 as u32;
-        let width = self.mouse_end.0 as u32 - x;
-        let height = self.mouse_end.1 as u32 - y;
+        let x = self.mouse_start.x as u32;
+        let y = self.mouse_start.y as u32;
+        let width = self.mouse_end.x as u32 - x;
+        let height = self.mouse_end.y as u32 - y;
         // 创建新的图像缓冲区 - 直接使用选择框的大小
         let mut cropped_image: ImageBuffer<Rgba<u8>, Vec<u8>> = ImageBuffer::new(width, height);
         // 用白色背景填充
