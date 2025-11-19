@@ -10,3 +10,30 @@ egui = "0.33.0"
 image = { version = "0.25.8", features = ["png", "jpeg"] }
 xcap = "0.7.1"
 device_query = "4.0.1"
+
+[profile.release]
+# 主要影响大小的配置
+opt-level = "z"  # 最小化大小优化
+lto = true       # 链接时优化
+codegen-units = 1 # 减少代码生成单元提高优化
+panic = "abort"  # 使用 abort 而不是 unwind
+strip = true     # 剥离调试符号
+
+# 可选配置
+debug = false    # 禁用调试信息
+#incremental = false # 禁用增量编译
+
+[target.aarch64-unknown-linux-gnu]
+linker = "aarch64-linux-gnu-gcc"
+
+[env]
+PKG_CONFIG_ALLOW_CROSS = "1"
+
+
+#[target.x86_64-pc-windows-gnu]
+#linker = "x86_64-w64-mingw32-gcc"
+#ar = "x86_64-w64-mingw32-gcc-ar"
+#
+#[target.i686-pc-windows-gnu]
+#linker = "i686-w64-mingw32-gcc"
+#ar = "i686-w64-mingw32-gcc-ar"

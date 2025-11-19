@@ -1,10 +1,10 @@
 use arboard::Clipboard;
-use device_query::{DeviceQuery, DeviceState, MousePosition};
+use device_query::{DeviceQuery, DeviceState};
 use eframe::App;
 use eframe::epaint::StrokeKind;
 use egui::{Color32, Id, Pos2, Rect, Shape, Stroke, Vec2};
 use image::{ImageBuffer, Rgba};
-use xcap::{Monitor, Window};
+use xcap::{Monitor};
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 enum Tool {
@@ -182,33 +182,10 @@ impl ScreenshotApp {
             Pos2::new(max_x as f32, max_y as f32),
         )
     }
-
-    fn get_mouse_combined_bounds(&self) -> Rect {
-        if self.screens.is_empty() {
-            return Rect::NOTHING;
-        }
-
-        let mut min_x = i32::MAX;
-        let mut min_y = i32::MAX;
-        let mut max_x = i32::MIN;
-        let mut max_y = i32::MIN;
-
-        for screen in &self.screens {
-            min_x = min_x.min(screen.x().unwrap());
-            min_y = min_y.min(screen.y().unwrap());
-            max_x = max_x.max(screen.x().unwrap() + self.screen_with as i32);
-            max_y = max_y.max(screen.y().unwrap() + self.screen_height as i32);
-        }
-
-        Rect::from_min_max(
-            Pos2::new(min_x as f32, min_y as f32),
-            Pos2::new(max_x as f32, max_y as f32),
-        )
-    }
 }
 
 impl App for ScreenshotApp {
-    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.window_rect = ctx.viewport_rect();
         // 首次运行截图
         if self.screenshots.is_empty() {
@@ -242,7 +219,7 @@ fn get_screen_rect(screen: &Monitor) -> Rect {
 
 impl ScreenshotApp {
     fn draw_screens(&self, ui: &mut egui::Ui) {
-        for (i, (screen, texture)) in self.screens.iter().zip(&self.display_textures).enumerate() {
+        for (_i, (screen, texture)) in self.screens.iter().zip(&self.display_textures).enumerate() {
             let screen_rect = get_screen_rect(screen);
 
             // 绘制屏幕截图
@@ -348,7 +325,7 @@ impl ScreenshotApp {
         if let Some(text_state) = &mut self.text_input {
             if text_state.is_active {
                 // 文本输入激活时，不处理其他工具
-                self.handle_text_input(ui, ctx, pointer_pos);
+                self.handle_text_input(ui, ctx);
                 // 如果文本输入已经完成，立即返回
                 if self.text_input_finalized {
                     self.finalize_text_input();
@@ -587,7 +564,7 @@ impl ScreenshotApp {
         }
     }
 
-    fn handle_text_input(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, pointer_pos: Pos2) {
+    fn handle_text_input(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         if let Some(text_state) = &mut self.text_input.clone() {
             if !text_state.is_active {
                 return;
@@ -755,7 +732,7 @@ impl ScreenshotApp {
 
 
                                 if ui.button("copy").clicked() {
-                                    self.copy_to_clipboard(ctx);
+                                    self.copy_to_clipboard();
                                 }
 
                             });
@@ -795,7 +772,7 @@ impl ScreenshotApp {
                 let current_x = text_state.position.x;
                 let desired_width = (max_x - current_x).max(max_x - current_x);
                 // 创建文本输入区域
-                let text_response = egui::Area::new(text_state.widget_id)
+                let _text_response = egui::Area::new(text_state.widget_id)
                     .fixed_pos(text_state.position)
                     .order(egui::Order::Foreground)
                     .show(ui.ctx(), |ui| {
@@ -955,7 +932,7 @@ impl ScreenshotApp {
         // }
     // }
 
-    fn copy_to_clipboard(&self, ctx: &egui::Context) {
+    fn copy_to_clipboard(&self) {
         if let Some(selection_rect) = self.selection_rect {
 
             // 确保当前文本输入完成
@@ -1047,7 +1024,6 @@ impl ScreenshotApp {
             Vec2::new(selection_rect.width(), selection_rect.height())
         );
 
-        let stroke_width = annotation.stroke_width as u32;
         let color = annotation.color;
 
         match annotation.tool {
@@ -1134,8 +1110,6 @@ impl ScreenshotApp {
                     }
 
                     // 绘制箭头头
-                    let arrow_length = 10;
-                    let arrow_angle = std::f64::consts::FRAC_PI_6; // 30 degrees in radians
                     let arrow_head_length = 5;
 
                     // 计算箭头头的位置
@@ -1151,7 +1125,7 @@ impl ScreenshotApp {
             Tool::Text => {
                 // 绘制文本
                 if let Some(&pos) = annotation.points.first() {
-                    let pos_rel = Pos2::new(pos.x - rel_rect.min.x, pos.y - rel_rect.min.y);
+                    let _pos_rel = Pos2::new(pos.x - rel_rect.min.x, pos.y - rel_rect.min.y);
 
                     if !annotation.text.is_empty() {
                         // 这里应添加文本绘制逻辑
