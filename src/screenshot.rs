@@ -558,6 +558,7 @@ impl ScreenshotApp {
                 self.show_toolbar = false;
                 self.selection_rect = None;
                 self.mouse_selection_rect = None;
+                self.current_tool = Tool::Select;
             } else {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             }
