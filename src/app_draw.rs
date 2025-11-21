@@ -109,7 +109,6 @@ impl ScreenshotApp {
         let pointer_pos = ui.input(|i| i.pointer.interact_pos()).unwrap_or(Pos2::ZERO);
         let mouse_pos = self.device_state.get_mouse().coords;
         // 如果有活动的文本输入，优先处理文本输入
-        #[warn(clippy::collapsible_if)]
         if let Some(text_state) = &mut self.text_input && text_state.is_active {
             // 文本输入激活时，不处理其他工具
             self.handle_text_input(ui, ctx);

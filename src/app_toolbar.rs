@@ -240,6 +240,44 @@ impl ScreenshotApp {
         }
     }
 
+    fn calculate_average_color(
+        &self,
+        image_data: &[u8],
+        x_start: usize,
+        y_start: usize,
+        x_end: usize,
+        y_end: usize,
+        image_width: usize,
+        bytes_per_pixel: usize
+    ) -> Color32 {
+        let mut r_sum = 0u32;
+        let mut g_sum = 0u32;
+        let mut b_sum = 0u32;
+        let mut count = 0u32;
+
+        for y in y_start..y_end {
+            for x in x_start..x_end {
+                let index = (y * image_width + x) * bytes_per_pixel;
+                if index + 2 < image_data.len() {
+                    r_sum += image_data[index] as u32;
+                    g_sum += image_data[index + 1] as u32;
+                    b_sum += image_data[index + 2] as u32;
+                    count += 1;
+                }
+            }
+        }
+
+        if count > 0 {
+            Color32::from_rgb(
+                (r_sum / count) as u8,
+                (g_sum / count) as u8,
+                (b_sum / count) as u8,
+            )
+        } else {
+            Color32::GRAY // 默认颜色
+        }
+    }
+
     fn draw_single_annotation(&self, painter: &egui::Painter, annotation: &Annotation) {
         if annotation.points.len() < 2 {
             return;
@@ -314,6 +352,40 @@ impl ScreenshotApp {
                             annotation.color,
                         );
                     }
+                }
+            }
+            Tool::Mosaic => {
+                // 绘制马赛克效果
+                if let (Some(&start), Some(&end)) = (annotation.points.first(), annotation.points.last()) {
+                    let rect = Rect::from_two_pos(start, end);
+
+                    // 马赛克块大小（可调整）
+                    let block_size = 5.0;
+
+                    // 计算马赛克网格
+                    let width = rect.width();
+                    let height = rect.height();
+                    let cols = (width / block_size).ceil() as usize;
+                    let rows = (height / block_size).ceil() as usize;
+
+                    // 绘制马赛克网格
+                    for row in 0..rows {
+                        for col in 0..cols {
+                            let block_rect = Rect::from_min_size(
+                                Pos2::new(
+                                    rect.min.x + col as f32 * block_size,
+                                    rect.min.y + row as f32 * block_size
+                                ),
+                                Vec2::new(block_size, block_size)
+                            );
+                            let pixel = self.screenshots[0].get_pixel(block_rect.min.x as u32, block_rect.min.y as u32);
+                            let current_color = Color32::from_rgb(pixel[0], pixel[1], pixel[2]);
+                            painter.rect_filled(block_rect, egui::CornerRadius::ZERO, current_color);
+                        }
+                    }
+
+                    // // 可选：绘制马赛克区域的边框
+                    // painter.rect_stroke(rect, egui::CornerRadius::ZERO, stroke, StrokeKind::Middle);
                 }
             }
             _ => {}
