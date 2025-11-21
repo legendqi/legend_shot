@@ -1,21 +1,20 @@
-use std::fs;
 use eframe::emath::{Pos2, Rect, Vec2};
-use eframe::epaint::{Color32, ColorImage, Hsva, Shape, Stroke, StrokeKind};
-use egui::{color_picker, AtomExt, Button, Id, Image, ImageSource, Key, Popup, PopupCloseBehavior, Response, Sense, Ui};
+use eframe::epaint::{Color32, Hsva, Shape, Stroke, StrokeKind};
+use egui::{color_picker, Button, Id, Popup, PopupCloseBehavior, Response, Ui};
 use egui::color_picker::color_picker_hsva_2d;
 use crate::app_default::{Annotation, ScreenshotApp, Tool};
 use crate::ui::load_texture_from_png;
 
 impl ScreenshotApp {
     pub(crate) fn draw_toolbar(&mut self, ctx: &egui::Context) {
+        self.tool_bar_focused = false;
         if let Some(selection_rect) = self.selection_rect {
-            let toolbar_size = Vec2::new(100.0, 40.0);
+            let toolbar_size = Vec2::new(50.0, 40.0);
             // 计算工具栏位置：在选择框右下角，并与选择框右对齐
             let mut toolbar_pos = Pos2::new(
-                selection_rect.max.x - toolbar_size.x, // 右对齐：工具栏右侧与选择框右侧对齐
-                selection_rect.max.y,                  // 在选择框下方
+                selection_rect.min.x, // 左对齐：工具栏左侧与选择框左侧对齐
+                selection_rect.max.y + 5.0,  // 在选择框下方，留 5.0 的间距
             );
-
             // 确保工具栏在屏幕内
             let screen_rect = ctx.viewport_rect();
 
@@ -26,7 +25,7 @@ impl ScreenshotApp {
 
             // 如果工具栏超出左边界，确保至少显示一部分
             if toolbar_pos.x < screen_rect.min.x {
-                toolbar_pos.x = screen_rect.min.x;
+                toolbar_pos.x = screen_rect.min.x + 10.0;
             }
 
             // 如果工具栏超出下边界，显示在选择框上方
@@ -36,7 +35,7 @@ impl ScreenshotApp {
 
             // 如果工具栏超出上边界，确保至少显示一部分
             if toolbar_pos.y < screen_rect.min.y {
-                toolbar_pos.y = screen_rect.min.y;
+                toolbar_pos.y = screen_rect.min.y + 10.0;
             }
 
 
@@ -49,120 +48,96 @@ impl ScreenshotApp {
                         .show(ui, |ui| {
                             ui.horizontal(|ui| {
                                 // 工具选择
-                                let pen_icon = load_texture_from_png(ctx, "src/icon/pen.png").unwrap();
-                                let arrow_icon = load_texture_from_png(ctx, "src/icon/arrow.png").unwrap();
-                                let copy_icon = load_texture_from_png(ctx, "src/icon/copy.png").unwrap();
-                                let mosaic_icon = load_texture_from_png(ctx, "src/icon/mosaic.png").unwrap();
-                                let move_icon = load_texture_from_png(ctx, "src/icon/move.png").unwrap();
-                                let number_icon = load_texture_from_png(ctx, "src/icon/number.png").unwrap();
-                                let rectangle_icon = load_texture_from_png(ctx, "src/icon/rectangle.png").unwrap();
-                                let save_icon = load_texture_from_png(ctx, "src/icon/save.png").unwrap();
-                                let word_icon = load_texture_from_png(ctx, "src/icon/word.png").unwrap();
-                                let exit_icon = load_texture_from_png(ctx, "src/icon/exit.png").unwrap();
-                                self.purple_icon_button(ui, Tool::MoveBox, move_icon);
-                                self.purple_icon_button(ui, Tool::Pen, pen_icon);
-                                self.purple_icon_button(ui, Tool::Rectangle, rectangle_icon);
-                                self.purple_icon_button(ui, Tool::Arrow, arrow_icon);
-                                self.purple_icon_button(ui, Tool::Text, word_icon).hovered();
-                                self.purple_icon_button(ui, Tool::Mosaic, mosaic_icon).hovered();
-                                self.purple_icon_button(ui, Tool::Number, number_icon).hovered();
-
-                                ui.separator();
-
-                                let button_size = Vec2::new(30.0, 30.0);
-
-                                // 创建自定义按钮
-                                let button = Button::new("")
-                                    .min_size(button_size)
-                                    .frame(false);
-                                let mut color_pick_response = ui.add(button);
-
+                                self.purple_icon_button(ui, Tool::MoveBox, ctx, "src/icon/move.png");
+                                self.purple_icon_button(ui, Tool::Pen, ctx, "src/icon/pen.png");
+                                self.purple_icon_button(ui, Tool::Rectangle, ctx, "src/icon/rectangle.png");
+                                self.purple_icon_button(ui, Tool::Arrow, ctx, "src/icon/arrow.png");
+                                self.purple_icon_button(ui, Tool::Text, ctx, "src/icon/word.png");
+                                self.purple_icon_button(ui, Tool::Mosaic, ctx, "src/icon/mosaic.png");
+                                self.purple_icon_button(ui, Tool::Number, ctx, "src/icon/number.png");
 
                                 // 颜色选择
-                                // let mut color_pick_response = ui.color_edit_button_srgba(&mut self.annotation_color);
-                                ui.painter().circle_filled(
-                                    color_pick_response.rect.center(),
-                                    color_pick_response.rect.width() / 2.0,
-                                    self.annotation_color,
-                                );
-                                // 使用状态来跟踪弹出窗口是否打开
-                                let popup_id = ui.auto_id_with("color_popup");
-                                // let mut is_popup_open = ui.memory(|mem| mem.is_popup_open(popup_id));
-
-                                // if is_popup_open {
-                                //     let mut hsva = Hsva::from(self.annotation_color);
-                                //     Popup::menu(&color_pick_response)
-                                //         .id(popup_id)
-                                //         .close_behavior(PopupCloseBehavior::CloseOnClickOutside)
-                                //         .show(|ui| {
-                                //             ui.spacing_mut().slider_width = 275.0;
-                                //             if color_picker_hsva_2d(ui, & mut hsva, color_picker::Alpha::BlendOrAdditive) {
-                                //                 self.annotation_color = Color32::from(hsva);
-                                //             }
-                                //             if ui.button("关闭").clicked() {
-                                //                 ui.memory_mut(|mem| mem.close_popup(popup_id));
-                                //                 is_popup_open = false;
-                                //             }
-                                //         });
-                                // }
-
-                                // 点击按钮时打开弹出窗口
-                                // if color_pick_response.clicked() {
-                                //     is_popup_open = true;
-                                //     ui.memory_mut(|mem| mem.open_popup(popup_id));
-                                // }
-                                color_pick_response.clicked().then(|| {
-                                    let mut hsva = Hsva::from(self.annotation_color);
-                                    Popup::menu(&color_pick_response)
-                                        .id(popup_id)
-                                        .close_behavior(PopupCloseBehavior::CloseOnClickOutside)
-                                        .show(|ui| {
-                                            ui.spacing_mut().slider_width = 275.0;
-                                            if color_picker_hsva_2d(ui, & mut hsva, color_picker::Alpha::BlendOrAdditive) {
-                                                self.annotation_color = Color32::from(hsva);
-                                            }
-                                            if ui.button("关闭").clicked() {
-                                                ui.memory_mut(|mem| mem.close_popup(popup_id));
-                                            }
-                                        });
-                                    ui.memory_mut(|mem| mem.open_popup(popup_id));
-
-                                });
-
+                                self.custom_color_picker(ui, ctx);
                                 // 画笔大小
                                 // ui.add(egui::Slider::new(&mut self.brush_size, 1.0..=20.0));
 
-                                ui.separator();
-
-                                self.purple_icon_button(ui, Tool::Button, copy_icon).clicked().then(|| {
+                                // 操作： 复制，保存，退出
+                                self.purple_icon_button(ui, Tool::Button, ctx, "src/icon/copy.png").clicked().then(|| {
                                     self.copy_to_clipboard();
                                     ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                                 });
 
-                                self.purple_icon_button(ui, Tool::Button, save_icon).clicked().then(|| {
-                                    self.copy_to_clipboard();
+                                self.purple_icon_button(ui, Tool::Button, ctx, "src/icon/save.png").clicked().then(|| {
+                                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                                    self.save_screenshot();
                                 });
 
-                                self.purple_icon_button(ui, Tool::Button, exit_icon).clicked().then(|| {
+                                self.purple_icon_button(ui, Tool::Button, ctx, "src/icon/exit.png").clicked().then(|| {
                                     ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                                 });
                             });
                         });
                 });
+
         }
     }
 
-    fn tool_button(&mut self, ui: &mut Ui, tool: Tool, icon: &str) -> Response {
-        let is_selected = self.current_tool == tool;
-        let response = ui.selectable_label(is_selected, icon);
-        if response.clicked() {
-            self.current_tool = tool;
+    fn custom_color_picker(&mut self, ui: &mut Ui, ctx: &egui::Context) {
+        let button_size = Vec2::new(30.0, 30.0);
+
+        // 创建自定义按钮
+        let button = Button::new("")
+            .min_size(button_size)
+            .frame(false);
+        let color_pick_response = ui.add(button);
+
+        let is_hovered_or_focused = color_pick_response.hovered() || color_pick_response.has_focus();
+
+        // 颜色选择
+        let inner_radius = color_pick_response.rect.width() / 2.0;
+        // 画边框（紫色，半径为 inner_radius + 2.0）
+        if is_hovered_or_focused || self.current_tool == Tool::ColorPicker {
+            self.tool_bar_focused = true;
+            ui.painter().circle_filled(
+                color_pick_response.rect.center(),
+                inner_radius,
+                Color32::from_rgb(128, 0, 128),
+            );
+        } else {
+            ui.painter().circle_filled(
+                color_pick_response.rect.center(),
+                inner_radius,
+                Color32::from_rgb(128, 80, 128),
+            );
         }
 
-        response
+        ui.painter().circle_filled(
+            color_pick_response.rect.center(),
+            inner_radius - 4.0,
+            self.annotation_color,
+        );
+        // 👉 关键修复：生成ID放在点击逻辑外面（但确保在同一个UI帧）
+        let popup_id = ui.auto_id_with("color_popup");
+        let mut hsva = Hsva::from(self.annotation_color);
+        Popup::menu(&color_pick_response)
+            .id(popup_id)
+            .close_behavior(PopupCloseBehavior::CloseOnClickOutside)
+            .show(|ui| {
+                ui.add_space(10.0); // 必须加，否则不会显示
+                ui.spacing_mut().slider_width = 275.0;
+                if color_picker_hsva_2d(ui, & mut hsva, color_picker::Alpha::BlendOrAdditive) {
+                    self.annotation_color = Color32::from(hsva);
+                }
+            });
+        // 处理点击：用 if 而不是 then！
+        if color_pick_response.clicked() {
+            self.current_tool = Tool::ColorPicker;
+            Popup::open_id(ctx, popup_id);
+        }
     }
 
-    pub fn purple_icon_button(&mut self, ui: &mut Ui, tool: Tool, icon_texture_id: egui::TextureId) -> Response {
+    pub fn purple_icon_button(&mut self, ui: &mut Ui, tool: Tool, ctx: &egui::Context, icon_path: &str) -> Response {
+        let icon = load_texture_from_png(ctx, icon_path).unwrap();
         let selected = self.current_tool == tool;
         let button_size = Vec2::new(30.0, 30.0);
 
@@ -182,6 +157,7 @@ impl ScreenshotApp {
                 Color32::from_rgb(128, 0, 128), // 选中或悬停时为紫色
             );
         } else if is_hovered_or_focused {
+            self.tool_bar_focused = true;
             ui.painter().circle_filled(
                 response.rect.center(),
                 response.rect.width() / 2.0, // 圆角为0
@@ -192,14 +168,14 @@ impl ScreenshotApp {
             ui.painter().circle_filled(
                 response.rect.center(),
                 response.rect.width() / 2.0, // 圆角为0
-                Color32::from_rgb(128, 100, 128), // 初始状态为淡紫色
+                Color32::from_rgb(128, 80, 128), // 初始状态为淡紫色
             );
         }
         // 绘制图标
         let icon_size = Vec2::new(20.0, 20.0);
         let icon_rect = Rect::from_center_size(response.rect.center(), icon_size);
         ui.painter().image(
-            icon_texture_id,
+            icon,
             icon_rect,
             Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
             Color32::WHITE,
@@ -210,7 +186,7 @@ impl ScreenshotApp {
         response
     }
 
-    pub(crate) fn draw_annotations(&self, ui: &mut egui::Ui) {
+    pub(crate) fn draw_annotations(&self, ui: &mut Ui) {
         let painter = ui.painter();
 
         for annotation in &self.annotations {
@@ -223,7 +199,7 @@ impl ScreenshotApp {
     }
 
     // 文本输入
-    pub(crate) fn draw_text_input(&mut self, ui: &mut egui::Ui) {
+    pub(crate) fn draw_text_input(&mut self, ui: &mut Ui) {
         if let Some(text_state) = &mut self.text_input {
             if text_state.is_active {
                 let max_x = self.selection_end.x;

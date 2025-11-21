@@ -6,29 +6,32 @@ use crate::ui::get_screen_rect;
 
 impl ScreenshotApp {
 
-    // fn save_screenshot(&self, ctx: &egui::Context) {
-    // if let Some(selection_rect) = self.selection_rect {
-    //     if let Some(cropped_image) = self.crop_selection(selection_rect, &self.annotations) {
-    //         // 使用文件对话框选择保存位置
-    //         let task = rfd::AsyncFileDialog::new()
-    //             .set_title("save")
-    //             .add_filter("PNG", &["png".to_string()])
-    //             .add_filter("JPEG", &["jpg".to_string(), "jpeg".to_string()])
-    //             .save_file();
-    //
-    //         let ctx = ctx.clone();
-    //         wasm_bindgen_futures::spawn_local(async move {
-    //             if let Some(file) = task.await {
-    //                 let path = file.path();
-    //                 if let Err(e) = cropped_image.save(path.to_path_buf()) {
-    //                     eprintln!("Failed to save screenshot: {}", e);
-    //                 }
-    //             }
-    //             ctx.request_repaint();
-    //         });
-    //     }
-    // }
-    // }
+    pub fn save_screenshot(&self) {
+        if let Some(selection_rect) = self.selection_rect {
+            if let Some(cropped_image) = self.crop_selection(selection_rect, &self.annotations) {
+                let now = chrono::Local::now();
+                let filename = now.format("screenshot_%Y-%m-%d_%H-%M-%S.png").to_string();
+                let file_save_dialog = rfd::FileDialog::new();
+                let save_path = file_save_dialog.set_file_name(filename.as_str())
+                    .add_filter("PNG Image", &["png"])
+                    .add_filter("JPEG Image", &["jpg", "jpeg"])
+                    .save_file();
+                if let Some(path) = save_path {
+                    // 根据文件扩展名自动选择保存格式
+                    let format = match path.as_path().extension().and_then(|e| e.to_str()) {
+                        Some("jpg") | Some("jpeg") => image::ImageFormat::Jpeg,
+                        _ => image::ImageFormat::Png,
+                    };
+                    // 执行实际保存操作
+                    if let Err(e) = cropped_image.save_with_format(&path, format) {
+                        eprintln!("保存失败: {:?}", e);
+                    } else {
+                        println!("截图已成功保存至: {:?}", path.as_path());
+                    }
+                }
+            }
+        }
+    }
 
     pub fn copy_to_clipboard(&self) {
         if let Some(selection_rect) = self.selection_rect {

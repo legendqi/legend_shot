@@ -1,6 +1,7 @@
 use device_query::DeviceQuery;
 use eframe::emath::{Pos2, Rect};
 use eframe::epaint::{Color32, Shape, Stroke, StrokeKind};
+use egui::Widget;
 use crate::app_default::{Annotation, MouseSelectionRect, ScreenshotApp, TextInputState, Tool};
 use crate::ui::get_screen_rect;
 
@@ -123,6 +124,9 @@ impl ScreenshotApp {
 
         // 鼠标按下开始选择
         if ui.input(|i| i.pointer.primary_pressed()) {
+            if self.tool_bar_focused {
+                return;
+            }
             if self.current_tool == Tool::Select && !self.show_toolbar {
                 self.is_selecting = true;
                 self.selection_start = pointer_pos;

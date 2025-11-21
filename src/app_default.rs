@@ -15,6 +15,7 @@ pub enum Tool {
     MoveBox,
     Number,
     Mosaic,
+    ColorPicker,
     Button
 }
 
@@ -83,6 +84,7 @@ pub struct ScreenshotApp {
     pub  brush_size: f32,
     pub annotation_color: Color32,
     pub text_input: Option<TextInputState>,
+    pub tool_bar_focused: bool, // 添加工具栏焦点状态，主要是为了处理框选全屏时，工具栏在选框内部，工具栏无法点击的问题
 
     // UI 状态
     pub show_toolbar: bool,
@@ -122,6 +124,7 @@ impl Default for ScreenshotApp {
             brush_size: 3.0,
             annotation_color: Color32::RED,
             text_input: None,
+            tool_bar_focused: false,
             show_toolbar: false,
             toolbar_position: Pos2::ZERO,
             window_rect: Rect::NOTHING,
