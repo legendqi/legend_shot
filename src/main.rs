@@ -24,7 +24,6 @@ fn main() -> eframe::Result<()> {
         ..Default::default()
     };
     
-    // let mut initial_pixels = Some(rgba);
     
     eframe::run_native(
         "",

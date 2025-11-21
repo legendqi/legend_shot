@@ -200,50 +200,42 @@ impl ScreenshotApp {
 
     // 文本输入
     pub(crate) fn draw_text_input(&mut self, ui: &mut Ui) {
-        if let Some(text_state) = &mut self.text_input {
-            if text_state.is_active {
-                let max_x = self.selection_end.x;
-                let current_x = text_state.position.x;
-                let desired_width = (max_x - current_x).max(max_x - current_x);
-                // 创建文本输入区域
-                let _text_response = egui::Area::new(text_state.widget_id)
-                    .fixed_pos(text_state.position)
-                    .order(egui::Order::Foreground)
-                    .show(ui.ctx(), |ui| {
-                        // egui::Frame::window(ui.style())
-                        egui::Frame::NONE
-                            .show(ui, |ui| {
-                                let text_edit = egui::TextEdit::multiline(&mut text_state.text)
-                                    .font(egui::FontId::proportional(16.0))
-                                    .desired_width(desired_width)
-                                    .desired_rows(1)
-                                    .min_size(Vec2::ZERO)
-                                    .frame(true)
-                                    .text_color(self.annotation_color)
-                                    .lock_focus(true)
-                                    .hint_text("")
-                                    .id(text_state.widget_id);
-                                // 设置焦点
-                                if !text_state.has_focus {
-                                    ui.memory_mut(|mem| mem.request_focus(text_state.widget_id));
-                                    text_state.has_focus = true;
-                                }
-                                // 更新输入框位置
-                                if let Some(annotation) = &self.current_annotation {
-                                    if let Some(&pos) = annotation.points.first() {
-                                        if text_state.position != pos {
-                                            text_state.position = pos;
-                                        }
-                                    }
-                                }
-                                let response = ui.add(text_edit);
-                                response
-                            }).inner
-                    }).response;
-                // 确保光标持续可见
-                if text_state.has_focus {
-                    ui.ctx().request_repaint(); // 确保光标闪烁动画持续
-                }
+        if let Some(text_state) = &mut self.text_input && text_state.is_active {
+            let max_x = self.selection_end.x;
+            let current_x = text_state.position.x;
+            let desired_width = (max_x - current_x).max(max_x - current_x);
+            // 创建文本输入区域
+            let _text_response = egui::Area::new(text_state.widget_id)
+                .fixed_pos(text_state.position)
+                .order(egui::Order::Foreground)
+                .show(ui.ctx(), |ui| {
+                    egui::Frame::NONE
+                        .show(ui, |ui| {
+                            let text_edit = egui::TextEdit::multiline(&mut text_state.text)
+                                .font(egui::FontId::proportional(16.0))
+                                .desired_width(desired_width)
+                                .desired_rows(1)
+                                .min_size(Vec2::ZERO)
+                                .frame(true)
+                                .text_color(self.annotation_color)
+                                .lock_focus(true)
+                                .hint_text("")
+                                .id(text_state.widget_id);
+                            // 设置焦点
+                            if !text_state.has_focus {
+                                ui.memory_mut(|mem| mem.request_focus(text_state.widget_id));
+                                text_state.has_focus = true;
+                            }
+                            // 更新输入框位置
+                            if let Some(annotation) = &self.current_annotation && let Some(&pos) = annotation.points.first() && text_state.position != pos {
+                                text_state.position = pos;
+                            }
+                            ui.add(text_edit);
+                        }).inner
+                }).response;
+            // 确保光标持续可见
+            if text_state.has_focus {
+                ui.ctx().request_repaint(); // 确保光标闪烁动画持续
             }
         }
     }
@@ -273,7 +265,6 @@ impl ScreenshotApp {
             Tool::Arrow => {
                 // 绘制箭头
                 if let (Some(&start), Some(&end)) = (annotation.points.first(), annotation.points.last()) {
-                    // painter.arrow(start, end - start, stroke);
                     // 1️⃣ 先画箭杆（线，和原来一样）
                     painter.line_segment([start, end], stroke);
 
@@ -305,32 +296,23 @@ impl ScreenshotApp {
             }
             Tool::Text => {
                 // 显示已保存的文本（仅在文本输入不活动时）
-                if let Some(&pos) = annotation.points.first() {
-                    if !annotation.text.is_empty() {
-                        // 按换行符分割文本
-                        let lines: Vec<&str> = annotation.text.lines().collect();
-                        let line_height = 16.0; // 与字体大小一致
-                        // 逐行绘制
-                        for (i, line) in lines.iter().enumerate() {
-                            painter.text(
-                                Pos2::new(
-                                    pos.x + 4f32,
-                                    pos.y + (i as f32) * line_height + 2f32, // 逐行下移
-                                ),
-                                // x和y加的4和2为为了避免文本向左上角移动
-                                egui::Align2::LEFT_TOP,
-                                line.to_string(),
-                                egui::FontId::proportional(16.0),
-                                annotation.color,
-                            );
-                        }
-                        // painter.text(
-                        //     pos,
-                        //     egui::Align2::LEFT_TOP,
-                        //     annotation.text.clone(),
-                        //     egui::FontId::proportional(16.0),
-                        //     annotation.color,
-                        // );
+                if let Some(&pos) = annotation.points.first() && !annotation.text.is_empty() {
+                    // 按换行符分割文本
+                    let lines: Vec<&str> = annotation.text.lines().collect();
+                    let line_height = 16.0; // 与字体大小一致
+                    // 逐行绘制
+                    for (i, line) in lines.iter().enumerate() {
+                        painter.text(
+                            Pos2::new(
+                                pos.x + 4f32,
+                                pos.y + (i as f32) * line_height + 2f32, // 逐行下移
+                            ),
+                            // x和y加的4和2为为了避免文本向左上角移动
+                            egui::Align2::LEFT_TOP,
+                            line.to_string(),
+                            egui::FontId::proportional(16.0),
+                            annotation.color,
+                        );
                     }
                 }
             }

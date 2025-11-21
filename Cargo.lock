@@ -2095,6 +2095,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7a79a3332a6609480d7d0c9eab957bca6b455b91bb84e66d19f5ff66294b85b8"
 
 [[package]]
+name = "legend_shot"
+version = "0.1.0"
+dependencies = [
+ "arboard",
+ "chrono",
+ "device_query",
+ "eframe",
+ "egui",
+ "image",
+ "rfd",
+ "xcap",
+]
+
+[[package]]
 name = "libc"
 version = "0.2.177"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3630,20 +3644,6 @@ name = "scopeguard"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
-
-[[package]]
-name = "screenshot"
-version = "0.1.0"
-dependencies = [
- "arboard",
- "chrono",
- "device_query",
- "eframe",
- "egui",
- "image",
- "rfd",
- "xcap",
-]
 
 [[package]]
 name = "sctk-adwaita"

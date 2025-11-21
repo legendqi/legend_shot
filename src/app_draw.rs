@@ -1,7 +1,6 @@
 use device_query::DeviceQuery;
 use eframe::emath::{Pos2, Rect};
 use eframe::epaint::{Color32, Shape, Stroke, StrokeKind};
-use egui::Widget;
 use crate::app_default::{Annotation, MouseSelectionRect, ScreenshotApp, TextInputState, Tool};
 use crate::ui::get_screen_rect;
 
@@ -110,30 +109,27 @@ impl ScreenshotApp {
         let pointer_pos = ui.input(|i| i.pointer.interact_pos()).unwrap_or(Pos2::ZERO);
         let mouse_pos = self.device_state.get_mouse().coords;
         // 如果有活动的文本输入，优先处理文本输入
-        if let Some(text_state) = &mut self.text_input {
-            if text_state.is_active {
-                // 文本输入激活时，不处理其他工具
-                self.handle_text_input(ui, ctx);
-                // 如果文本输入已经完成，立即返回
-                if self.text_input_finalized {
-                    self.finalize_text_input();
-                    return;
-                }
+        #[warn(clippy::collapsible_if)]
+        if let Some(text_state) = &mut self.text_input && text_state.is_active {
+            // 文本输入激活时，不处理其他工具
+            self.handle_text_input(ui, ctx);
+            // 如果文本输入已经完成，立即返回
+            if self.text_input_finalized {
+                self.finalize_text_input();
+                return;
             }
         }
 
         // 鼠标按下开始选择
         if ui.input(|i| i.pointer.primary_pressed()) {
-            if self.tool_bar_focused {
-                return;
-            }
             if self.current_tool == Tool::Select && !self.show_toolbar {
                 self.is_selecting = true;
                 self.selection_start = pointer_pos;
                 self.selection_end = pointer_pos;
                 self.mouse_start = mouse_pos;
                 self.mouse_end = mouse_pos;
-            } else if self.current_tool == Tool::MoveBox && self.selection_rect.is_some() {
+                // !self.tool_bar_focused 要加载下面，不能放在前面判断然后return，不然会导致当前工具是文字标注，然后点击其他标注工具文字会跟随其他标注移动，也就是文字标注未结束
+            } else if self.current_tool == Tool::MoveBox && self.selection_rect.is_some() && !self.tool_bar_focused {
                 // 开始移动选择框
                 if self.selection_rect.unwrap().contains(pointer_pos) {
                     self.is_moving_box = true;
@@ -175,38 +171,35 @@ impl ScreenshotApp {
         }
 
         // 处理键盘输入（仅在文本输入激活时）
-        if let Some(text_state) = &mut self.text_input {
-            if text_state.is_active {
-                // 使用正确的事件处理方式
-                ctx.input(|input| {
-                    // 处理字符输入
-                    for event in &input.events {
-                        match event {
-                            egui::Event::Text(text) => {
-                                // 过滤控制字符，只添加可打印字符
-                                if !text.chars().next().map_or(false, |c| c.is_control()) {
-                                    text_state.text.push_str(text);
-                                }
+        if let Some(text_state) = &mut self.text_input && text_state.is_active  {
+            ctx.input(|input| {
+                // 处理字符输入
+                for event in &input.events {
+                    match event {
+                        egui::Event::Text(text) => {
+                            // 过滤控制字符，只添加可打印字符
+                            if !text.chars().next().map_or(false, |c| c.is_control()) {
+                                text_state.text.push_str(text);
                             }
-                            _ => {}
                         }
+                        _ => {}
                     }
-
-                    // 处理特殊键
-                    if input.key_pressed(egui::Key::Enter) {
-                        text_state.text.push('\n');
-                    }
-
-                    if input.key_pressed(egui::Key::Backspace) {
-                        text_state.text.pop();
-                    }
-                });
-
-                // ESC 键取消文本输入
-                if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
-                    self.text_input = None;
-                    self.current_annotation = None; // 同时取消当前标注
                 }
+
+                // 处理特殊键
+                if input.key_pressed(egui::Key::Enter) {
+                    text_state.text.push('\n');
+                }
+
+                if input.key_pressed(egui::Key::Backspace) {
+                    text_state.text.pop();
+                }
+            });
+
+            // ESC 键取消文本输入
+            if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                self.text_input = None;
+                self.current_annotation = None; // 同时取消当前标注
             }
         }
 
@@ -353,10 +346,8 @@ impl ScreenshotApp {
             // 处理键盘输入
             ctx.input(|input| {
                 for event in &input.events {
-                    if let egui::Event::Text(text) = event {
-                        if !text.chars().next().map_or(false, |c| c.is_control()) {
-                            text_state.text.push_str(text);
-                        }
+                    if let egui::Event::Text(text) = event && !text.chars().next().map_or(false, |c| c.is_control())  {
+                        text_state.text.push_str(text);
                     }
                 }
 
@@ -383,12 +374,10 @@ impl ScreenshotApp {
     }
 
     fn finalize_text_input(&mut self) {
-        if let Some(text_state) = self.text_input.take() {
-            if let Some(mut annotation) = self.current_annotation.take() {
-                annotation.text = text_state.text;
-                if !annotation.text.trim().is_empty() || annotation.points.len() > 1 {
-                    self.annotations.push(annotation);
-                }
+        if let (Some(text_state), Some(mut annotation)) = (self.text_input.take(), self.current_annotation.take()) {
+            annotation.text = text_state.text;
+            if !annotation.text.trim().is_empty() || annotation.points.len() > 1 {
+                self.annotations.push(annotation);
             }
         }
         self.text_input_finalized = false;
