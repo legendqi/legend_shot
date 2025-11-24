@@ -38,12 +38,10 @@ impl ScreenshotApp {
 
             // 确保当前文本输入完成
             let mut annotations = self.annotations.clone();
-            if let Some(text_state) = &self.text_input {
-                if let Some(annotation) = &self.current_annotation {
-                    let mut new_annotation = annotation.clone();
-                    new_annotation.text = text_state.text.clone();
-                    annotations.push(new_annotation);
-                }
+            if let (Some(text_state), Some(annotation)) = (&self.text_input, &self.current_annotation) {
+                let mut new_annotation = annotation.clone();
+                new_annotation.text = text_state.text.clone();
+                annotations.push(new_annotation);
             }
 
             if let Some(cropped_image) = self.crop_selection(selection_rect, &annotations) {

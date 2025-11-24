@@ -26,6 +26,7 @@ pub struct Annotation {
     pub color: Color32,
     pub stroke_width: f32,
     pub text: String,
+    pub number: Option<i32>,
 }
 
 #[derive(Clone)]
@@ -35,6 +36,7 @@ pub struct TextInputState {
     pub is_active: bool,
     pub widget_id: Id, // 添加widget_id用于焦点管理
     pub has_focus: bool, // 新增：跟踪焦点状态
+    pub last_interaction_time: f64,
 }
 
 // 在创建TextInputState时初始化widget_id
@@ -46,6 +48,7 @@ impl TextInputState {
             is_active: true,
             widget_id: Id::new(format!("text_input_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos())), // 使用固定ID或生成唯一ID
             has_focus: false,
+            last_interaction_time: 0.0,
         }
     }
 }
@@ -84,6 +87,7 @@ pub struct ScreenshotApp {
     pub  brush_size: f32,
     pub annotation_color: Color32,
     pub text_input: Option<TextInputState>,
+    pub number_input: Option<i32>,
     pub tool_bar_focused: bool, // 添加工具栏焦点状态，主要是为了处理框选全屏时，工具栏在选框内部，工具栏无法点击的问题
 
     // UI 状态
@@ -124,6 +128,7 @@ impl Default for ScreenshotApp {
             brush_size: 3.0,
             annotation_color: Color32::RED,
             text_input: None,
+            number_input: None,
             tool_bar_focused: false,
             show_toolbar: false,
             toolbar_position: Pos2::ZERO,

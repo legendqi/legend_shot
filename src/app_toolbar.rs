@@ -1,6 +1,6 @@
 use eframe::emath::{Pos2, Rect, Vec2};
 use eframe::epaint::{Color32, Hsva, Shape, Stroke, StrokeKind};
-use egui::{color_picker, Button, Id, Popup, PopupCloseBehavior, Response, Ui};
+use egui::{color_picker, text_selection, Button, Id, Popup, PopupCloseBehavior, Response, Ui};
 use egui::color_picker::color_picker_hsva_2d;
 use crate::app_default::{Annotation, ScreenshotApp, Tool};
 use crate::ui::load_texture_from_png;
@@ -203,7 +203,11 @@ impl ScreenshotApp {
         if let Some(text_state) = &mut self.text_input && text_state.is_active {
             let max_x = self.selection_end.x;
             let current_x = text_state.position.x;
-            let desired_width = (max_x - current_x).max(max_x - current_x);
+            let desired_width = (max_x - current_x).abs().max(10.0);
+
+            // 获取当前时间用于光标闪烁
+            let now = ui.ctx().input(|i| i.time);
+
             // 创建文本输入区域
             let _text_response = egui::Area::new(text_state.widget_id)
                 .fixed_pos(text_state.position)
@@ -211,71 +215,57 @@ impl ScreenshotApp {
                 .show(ui.ctx(), |ui| {
                     egui::Frame::NONE
                         .show(ui, |ui| {
+                            ui.style_mut().visuals.text_cursor.stroke.color = self.annotation_color; // 设置为红色光标
                             let text_edit = egui::TextEdit::multiline(&mut text_state.text)
                                 .font(egui::FontId::proportional(16.0))
                                 .desired_width(desired_width)
                                 .desired_rows(1)
                                 .min_size(Vec2::ZERO)
-                                .frame(true)
+                                .frame(false)
                                 .text_color(self.annotation_color)
-                                .lock_focus(true)
                                 .hint_text("")
                                 .id(text_state.widget_id);
-                            // 设置焦点
-                            if !text_state.has_focus {
-                                ui.memory_mut(|mem| mem.request_focus(text_state.widget_id));
-                                text_state.has_focus = true;
+                            let response = ui.add(text_edit);
+
+                            // 更新焦点状态和交互时间
+                            text_state.has_focus = response.has_focus();
+                            if response.changed() || response.lost_focus() || response.gained_focus() {
+                                text_state.last_interaction_time = now;
                             }
-                            // 更新输入框位置
-                            if let Some(annotation) = &self.current_annotation && let Some(&pos) = annotation.points.first() && text_state.position != pos {
-                                text_state.position = pos;
-                            }
-                            ui.add(text_edit);
+                            response
                         }).inner
                 }).response;
-            // 确保光标持续可见
-            if text_state.has_focus {
-                ui.ctx().request_repaint(); // 确保光标闪烁动画持续
-            }
-        }
-    }
+            // 手动绘制光标
+            ui.visuals_mut().text_cursor.stroke.color = self.annotation_color;
+            let painter = ui.painter();
 
-    fn calculate_average_color(
-        &self,
-        image_data: &[u8],
-        x_start: usize,
-        y_start: usize,
-        x_end: usize,
-        y_end: usize,
-        image_width: usize,
-        bytes_per_pixel: usize
-    ) -> Color32 {
-        let mut r_sum = 0u32;
-        let mut g_sum = 0u32;
-        let mut b_sum = 0u32;
-        let mut count = 0u32;
+            // 计算光标位置（这里需要根据文本内容计算准确的光标位置）
+            // 这是一个简化的实现，实际可能需要更复杂的光标位置计算
+            let cursor_rect = {
+                let galley = ui.fonts_mut(|f| f.layout_no_wrap(
+                    text_state.text.clone(),
+                    egui::FontId::proportional(16.0),
+                    self.annotation_color,
+                ));
 
-        for y in y_start..y_end {
-            for x in x_start..x_end {
-                let index = (y * image_width + x) * bytes_per_pixel;
-                if index + 2 < image_data.len() {
-                    r_sum += image_data[index] as u32;
-                    g_sum += image_data[index + 1] as u32;
-                    b_sum += image_data[index + 2] as u32;
-                    count += 1;
-                }
-            }
+                let cursor_x = text_state.position.x + galley.size().x + 2.0; // 在文本末尾
+                let cursor_y = text_state.position.y;
+                let cursor_height = 16.0; // 字体高度
+
+                Rect::from_min_size(
+                    egui::pos2(cursor_x, cursor_y),
+                    egui::vec2(20.0, cursor_height), // 光标宽度为2像素
+                )
+            };
+            // 绘制光标
+            text_selection::visuals::paint_text_cursor(
+                ui,
+                &painter,
+                cursor_rect,
+                now - text_state.last_interaction_time,
+            );
         }
 
-        if count > 0 {
-            Color32::from_rgb(
-                (r_sum / count) as u8,
-                (g_sum / count) as u8,
-                (b_sum / count) as u8,
-            )
-        } else {
-            Color32::GRAY // 默认颜色
-        }
     }
 
     fn draw_single_annotation(&self, painter: &egui::Painter, annotation: &Annotation) {
@@ -318,7 +308,7 @@ impl ScreenshotApp {
 
                     // 箭头尺寸（可调，我设了10x5，你按需改）
                     let arrow_length = 15.0;
-                    let arrow_width = 5.0;
+                    let arrow_width = 8.0;
 
                     let tip = end; // 箭头尖端
                     let left = end - dir_norm * arrow_length + perp * arrow_width;
@@ -360,7 +350,7 @@ impl ScreenshotApp {
                     let rect = Rect::from_two_pos(start, end);
 
                     // 马赛克块大小（可调整）
-                    let block_size = 5.0;
+                    let block_size = 4.0;
 
                     // 计算马赛克网格
                     let width = rect.width();
@@ -386,6 +376,29 @@ impl ScreenshotApp {
 
                     // // 可选：绘制马赛克区域的边框
                     // painter.rect_stroke(rect, egui::CornerRadius::ZERO, stroke, StrokeKind::Middle);
+                }
+            }
+            Tool::Number => {
+                if let (Some(number), Some(&pos)) = (annotation.number, annotation.points.first()) {
+                    let number_str = number.to_string();
+                    let font_size = 16.0;
+                    let circle_radius = 12.0; // 圆圈半径（比文字大点更舒服）
+
+                    // 1️⃣ 先画圆圈背景（半透明黑，避免遮挡）
+                    painter.circle_filled(
+                        pos,
+                        circle_radius,
+                        annotation.color
+                    );
+
+                    // 2️⃣ 再画白色序号（居中）
+                    painter.text(
+                        pos,
+                        egui::Align2::CENTER_CENTER,
+                        number_str,
+                        egui::FontId::proportional(font_size),
+                        Color32::WHITE, // 白色文字
+                    );
                 }
             }
             _ => {}

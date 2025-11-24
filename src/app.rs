@@ -12,6 +12,9 @@ impl App for ScreenshotApp {
                 eprintln!("Failed to capture screens: {}", e);
             }
         }
+        // let mut style = ctx.style();
+        // style.visuals.text_cursor.stroke.color = self.annotation_color;
+        // ctx.set_style(style);
         // 主界面
         egui::Area::new(Id::from("screenshot_area".to_string()))
             .order(egui::Order::Background)

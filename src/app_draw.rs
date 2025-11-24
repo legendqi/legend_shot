@@ -154,7 +154,16 @@ impl ScreenshotApp {
                             } else {
                                 self.finalize_text_input();
                             }
-                        } else {
+                        } else if self.current_tool == Tool::Number {
+                            if self.number_input.is_none() {
+                                // 创建数字输入状态
+                                self.number_input = Some(1);
+                            } else {
+                                self.number_input = Some(self.number_input.unwrap() + 1)
+                            }
+                            self.start_annotation(pointer_pos);
+                        }
+                        else {
                             // 否则，开始标注
                             self.start_annotation(pointer_pos);
                         }
@@ -429,6 +438,7 @@ impl ScreenshotApp {
             color: self.annotation_color,
             stroke_width: self.brush_size,
             text: "".to_string(),
+            number: self.number_input,
         });
     }
 }
