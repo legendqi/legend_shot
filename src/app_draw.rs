@@ -1,4 +1,4 @@
-use device_query::DeviceQuery;
+use device_query::{DeviceQuery, MousePosition};
 use eframe::emath::{Pos2, Rect};
 use eframe::epaint::{Color32, Shape, Stroke, StrokeKind};
 use crate::app_default::{Annotation, MouseSelectionRect, ScreenshotApp, TextInputState, Tool};
@@ -150,7 +150,7 @@ impl ScreenshotApp {
                                 let text_state = TextInputState::new(pointer_pos);
                                 self.text_input = Some(text_state);
                                 self.text_input_finalized = false;
-                                self.start_annotation(pointer_pos);
+                                self.start_annotation(pointer_pos, mouse_pos);
                             } else {
                                 self.finalize_text_input();
                             }
@@ -161,11 +161,11 @@ impl ScreenshotApp {
                             } else {
                                 self.number_input = Some(self.number_input.unwrap() + 1)
                             }
-                            self.start_annotation(pointer_pos);
+                            self.start_annotation(pointer_pos, mouse_pos);
                         }
                         else {
                             // 否则，开始标注
-                            self.start_annotation(pointer_pos);
+                            self.start_annotation(pointer_pos, mouse_pos);
                         }
                     } else {
                         // 点击区域外的地方, 取消文本输入
@@ -285,6 +285,7 @@ impl ScreenshotApp {
                 if let Some(selection_rect) = self.selection_rect {
                     if selection_rect.contains(pointer_pos) {
                         annotation.points.push(pointer_pos);
+                        annotation.mouse_points.push(mouse_pos);
                     }
                 }
             }
@@ -431,10 +432,11 @@ impl ScreenshotApp {
         );
     }
 
-    fn start_annotation(&mut self, pos: Pos2) {
+    fn start_annotation(&mut self, pos: Pos2, mouse_pos: MousePosition) {
         self.current_annotation = Some(Annotation {
             tool: self.current_tool,
             points: vec![pos],
+            mouse_points: vec![mouse_pos],
             color: self.annotation_color,
             stroke_width: self.brush_size,
             text: "".to_string(),

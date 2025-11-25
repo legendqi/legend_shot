@@ -7,7 +7,7 @@ edition = "2024"
 arboard = "3.3"
 egui = "0.33.2"
 eframe = { version = "0.33.2", features = ["default", "x11"] }
-rfd = "0.15.4" # 文件操作
+rfd = "0.16.0" # 文件操作
 chrono = {version = "0.4.42", features = ["std"]}
 image = { version = "0.25.8", features = ["png", "jpeg"] }
 xcap = "0.7.1"

@@ -23,6 +23,7 @@ pub enum Tool {
 pub struct Annotation {
     pub tool: Tool,
     pub points: Vec<Pos2>,
+    pub mouse_points: Vec<MousePosition>,
     pub color: Color32,
     pub stroke_width: f32,
     pub text: String,
@@ -157,7 +158,6 @@ impl ScreenshotApp {
                 image.height(),
                 image.to_vec(),
             ).ok_or("Failed to create image buffer")?;
-
             self.screenshots.push(img_buffer);
 
             // 创建 egui 纹理
