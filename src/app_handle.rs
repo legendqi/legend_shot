@@ -4,7 +4,7 @@ use eframe::emath::{Pos2, Rect};
 use egui::Color32;
 use image::{ImageBuffer, Rgba};
 use crate::app_default::{Annotation, MouseSelectionRect, ScreenshotApp, Tool};
-use crate::ui::get_screen_rect;
+use crate::ui::{draw_simple_char, get_screen_rect};
 
 impl ScreenshotApp {
 
@@ -63,25 +63,6 @@ impl ScreenshotApp {
             }
         }
     }
-
-    // pub fn copy_to_clipboard(&self) -> Result<(), String> {
-    //     if self.selection_rect.is_none() {
-    //         return Err("请选择要复制的图片".to_string());
-    //     }
-    //     let x = self.selection_start.x.min(self.selection_end.x).min((self.screens[0].width().unwrap() - 1) as f32);
-    //     let y = self.selection_start.y.min(self.selection_end.y).min((self.screens[0].height().unwrap() - 1) as f32);
-    //     let width = (self.selection_start.x - self.selection_end.x).abs().min((self.screens[0].width().unwrap() - 1) as f32);
-    //     let height = (self.selection_start.y - self.selection_end.y).abs().min((self.screens[0].height().unwrap() - 1) as f32);
-    //     let image = self.screens[0].capture_region(x as u32, y as u32, width as u32, height as u32).map_err(|e| e.to_string())?;
-    //     let mut clipboard = Clipboard::new().map_err(|e| e.to_string())?;
-    //     let img_data = arboard::ImageData {
-    //         width: image.width() as usize,
-    //         height: image.height() as usize,
-    //         bytes: std::borrow::Cow::Borrowed(image.as_raw()),
-    //     };
-    //     clipboard.set_image(img_data).map_err(|e| e.to_string())?;
-    //     Ok(())
-    // }
 
     fn crop_selection(&self, selection_rect: Rect, annotations: &Vec<Annotation>) -> Option<ImageBuffer<Rgba<u8>, Vec<u8>>> {
         let x = self.mouse_start.0.min(self.mouse_end.0);
@@ -206,10 +187,6 @@ impl ScreenshotApp {
             Tool::Number => {
                 // 序号绘制
                 if let Some(&pos) = annotation.mouse_points.first() {
-                    let pos_rel = Pos2::new(
-                        (pos.0 - mouse_selection_rect.start.0).max(0) as f32,
-                        (pos.1 - mouse_selection_rect.start.1).max(0) as f32
-                    );
                     let pos: MousePosition = ((pos.0 - mouse_selection_rect.start.0).max(0), (pos.1 - mouse_selection_rect.start.1).max(0));
                     self.draw_number(image, pos, &annotation.number.unwrap().to_string(), color);
                 }
@@ -437,7 +414,7 @@ impl ScreenshotApp {
         // 简单绘制文字边框（实际项目中应该使用字体渲染）
         for (i, ch) in text.chars().enumerate() {
             let char_x = x + i as i32 * 8;
-            self.draw_simple_char(image, char_x, y, ch, color);
+            draw_simple_char(image, char_x, y, ch, color);
         }
     }
 
@@ -448,13 +425,13 @@ impl ScreenshotApp {
         // 绘制圆形背景
         self.draw_circle(image, pos.0, pos.1, radius, color);
         if let Some(first_char) = number.chars().next() && number.len() == 1 {
-            self.draw_simple_char(image, pos.0, pos.1, first_char, Color32::WHITE);
+            draw_simple_char(image, pos.0, pos.1, first_char, Color32::WHITE);
         } else {
             for (index, char) in number.chars().enumerate() {
                 if index == 0 {
-                    self.draw_simple_char(image, pos.0 - 4, pos.1, char, Color32::WHITE);
+                    draw_simple_char(image, pos.0 - 4, pos.1, char, Color32::WHITE);
                 } else {
-                    self.draw_simple_char(image, pos.0 + 4, pos.1, char, Color32::WHITE);
+                    draw_simple_char(image, pos.0 + 4, pos.1, char, Color32::WHITE);
                 }
 
             }
@@ -532,22 +509,6 @@ impl ScreenshotApp {
         }
     }
 
-    // 绘制序号
-    fn draw_circle_points(&self, image: &mut ImageBuffer<Rgba<u8>, Vec<u8>>, cx: i32, cy: i32, x: i32, y: i32, color: Color32) {
-        let points = [
-            (cx + x, cy + y), (cx - x, cy + y),
-            (cx + x, cy - y), (cx - x, cy - y),
-            (cx + y, cy + x), (cx - y, cy + x),
-            (cx + y, cy - x), (cx - y, cy - x),
-        ];
-
-        for (px, py) in points.iter() {
-            if *px >= 0 && *px < image.width() as i32 && *py >= 0 && *py < image.height() as i32 {
-                image.put_pixel(*px as u32, *py as u32, Rgba([color.r(), color.g(), color.b(), color.a()]));
-            }
-        }
-    }
-
     // 马赛克效果
     fn draw_mosaic(&self, image: &mut ImageBuffer<Rgba<u8>, Vec<u8>>, rect: Rect, block_size: u32) {
         let x1 = rect.min.x as u32;
@@ -593,173 +554,4 @@ impl ScreenshotApp {
         }
     }
 
-    // 简单字符绘制（用于文本和数字）
-    fn draw_simple_char(&self, image: &mut ImageBuffer<Rgba<u8>, Vec<u8>>, x: i32, y: i32, ch: char, color: Color32) {
-        // 定义数字的位图字体 (7x13 像素，但实际使用 5x7 区域)
-        let bitmap: &[u16] = match ch {
-            '0' => &[
-                0b001111100,
-                0b011111110,
-                0b111000111,
-                0b110000011,
-                0b110000011,
-                0b110000011,
-                0b110000011,
-                0b110000011,
-                0b110000011,
-                0b111000111,
-                0b011111110,
-                0b001111100,
-            ],
-            '1' => &[
-                0b000011000,
-                0b000111000,
-                0b001111000,
-                0b011011000,
-                0b000011000,
-                0b000011000,
-                0b000011000,
-                0b000011000,
-                0b000011000,
-                0b000011000,
-                0b000011000,
-                0b001111110,
-            ],
-            '2' => &[
-                0b001111100,
-                0b011111110,
-                0b111000111,
-                0b110000011,
-                0b000000011,
-                0b000000110,
-                0b000001100,
-                0b000011000,
-                0b000110000,
-                0b001100000,
-                0b011000000,
-                0b111111111,
-            ],
-            '3' => &[
-                0b001111100,
-                0b011111110,
-                0b111000111,
-                0b110000011,
-                0b000000011,
-                0b000001110,
-                0b000001110,
-                0b000000011,
-                0b110000011,
-                0b111000111,
-                0b011111110,
-                0b001111100,
-            ],
-            '4' => &[
-                0b000000110,
-                0b000001110,
-                0b000011110,
-                0b000110110,
-                0b001100110,
-                0b011000110,
-                0b110000110,
-                0b111111111,
-                0b111111111,
-                0b000000110,
-                0b000000110,
-                0b000000110,
-            ],
-            '5' => &[
-                0b111111111,
-                0b111111111,
-                0b110000000,
-                0b110000000,
-                0b111111100,
-                0b111111110,
-                0b000000111,
-                0b000000011,
-                0b110000011,
-                0b111000111,
-                0b011111110,
-                0b001111100,
-            ],
-            '6' => &[
-                0b001111100,
-                0b011111110,
-                0b111000111,
-                0b110000011,
-                0b110000000,
-                0b110111100,
-                0b111111110,
-                0b111000111,
-                0b110000011,
-                0b110000011,
-                0b111000111,
-                0b011111110,
-            ],
-            '7' => &[
-                0b111111111,
-                0b111111111,
-                0b000000011,
-                0b000000110,
-                0b000001100,
-                0b000011000,
-                0b000110000,
-                0b000110000,
-                0b001100000,
-                0b001100000,
-                0b001100000,
-                0b001100000,
-            ],
-            '8' => &[
-                0b001111100,
-                0b011111110,
-                0b111000111,
-                0b110000011,
-                0b110000011,
-                0b011001110,
-                0b001111100,
-                0b011001110,
-                0b110000011,
-                0b110000011,
-                0b111000111,
-                0b011111110,
-            ],
-            '9' => &[
-                0b001111100,
-                0b011111110,
-                0b111000111,
-                0b110000011,
-                0b110000011,
-                0b111000111,
-                0b011111111,
-                0b001111011,
-                0b000000011,
-                0b110000011,
-                0b111000111,
-                0b011111110,
-            ],
-            _ => return, // 如果不是数字，不绘制
-        };
-
-        let char_width = 9;
-        let char_height = 12;
-
-        // 计算字符的起始位置，使其在圆圈中心
-        let start_x = x - char_width / 2;
-        let start_y = y - char_height / 2;
-
-        // 绘制带抗锯齿的位图
-        for row in 0..char_height {
-            for col in 0..char_width {
-                if (bitmap[row as usize] >> (char_width - 1 - col)) & 1 == 1 {
-                    let px = start_x + col;
-                    let py = start_y + row;
-
-                    if px >= 0 && px < image.width() as i32 && py >= 0 && py < image.height() as i32 {
-                        // 直接绘制像素，使用字符颜色
-                        image.put_pixel(px as u32, py as u32, Rgba([color.r(), color.g(), color.b(), color.a()]));
-                    }
-                }
-            }
-        }
-    }
 }

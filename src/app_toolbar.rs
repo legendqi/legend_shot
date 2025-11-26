@@ -64,7 +64,7 @@ impl ScreenshotApp {
                                 // 操作： 复制，保存，退出
                                 self.purple_icon_button(ui, Tool::Button, ctx, "src/icon/copy.png").clicked().then(|| {
                                     self.copy_to_clipboard();
-                                    // ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                                 });
 
                                 self.purple_icon_button(ui, Tool::Button, ctx, "src/icon/save.png").clicked().then(|| {
