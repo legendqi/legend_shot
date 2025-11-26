@@ -4,6 +4,17 @@ use egui::{Color32, Vec2};
 use image::{ImageBuffer, Rgba};
 use xcap::Monitor;
 
+pub const ARROW_ICON: &[u8] = include_bytes!("icon/arrow.png");
+pub const COPY_ICON : &[u8] = include_bytes!("icon/copy.png");
+pub const EXIT_ICON : &[u8] = include_bytes!("icon/exit.png");
+pub const MOSAIC_ICON : &[u8] = include_bytes!("icon/mosaic.png");
+pub const MOVE_ICON : &[u8] = include_bytes!("icon/move.png");
+pub const NUMBER_ICON : &[u8] = include_bytes!("icon/number.png");
+pub const  PEN_ICON : &[u8] = include_bytes!("icon/pen.png");
+pub const RECTANGLE_ICON : &[u8] = include_bytes!("icon/rectangle.png");
+pub const SAVE_ICON : &[u8] = include_bytes!("icon/save.png");
+pub const WORD_ICON : &[u8] = include_bytes!("icon/word.png");
+
 pub fn get_screen_rect(screen: &Monitor) -> Rect {
     Rect::from_min_size(
         Pos2::new(screen.x().unwrap() as f32, screen.y().unwrap() as f32),
@@ -12,16 +23,15 @@ pub fn get_screen_rect(screen: &Monitor) -> Rect {
 }
 
 
-pub fn load_texture_from_png(ctx: &egui::Context, path: &str) -> Option<egui::TextureId> {
+pub fn load_texture_from_png(ctx: &egui::Context, icon_bytes: &[u8], icon_id: &str) -> Option<egui::TextureId> {
     // 使用 image crate 加载图片
-    let image_bytes = std::fs::read(path).ok()?;
-    let image = image::load_from_memory(&image_bytes).ok()?;
+    let image = image::load_from_memory(icon_bytes).ok()?;
     let image_buffer = image.to_rgba8();
     let size = [image_buffer.width() as _, image_buffer.height() as _];
     let pixels = image_buffer.into_raw();
 
     let image = egui::ColorImage::from_rgba_unmultiplied(size, &pixels);
-    Some(ctx.load_texture(path, image, TextureOptions::LINEAR).id())
+    Some(ctx.load_texture(icon_id, image, TextureOptions::LINEAR).id())
 }
 
 pub fn draw_simple_char(image: &mut ImageBuffer<Rgba<u8>, Vec<u8>>, x: i32, y: i32, ch: char, color: Color32) {

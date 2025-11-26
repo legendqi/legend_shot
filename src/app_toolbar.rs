@@ -3,7 +3,7 @@ use eframe::epaint::{Color32, Hsva, Shape, Stroke, StrokeKind};
 use egui::{color_picker, text_selection, Button, Id, Popup, PopupCloseBehavior, Response, Ui};
 use egui::color_picker::color_picker_hsva_2d;
 use crate::app_default::{Annotation, ScreenshotApp, Tool};
-use crate::ui::load_texture_from_png;
+use crate::ui::{load_texture_from_png, ARROW_ICON, COPY_ICON, EXIT_ICON, MOSAIC_ICON, MOVE_ICON, NUMBER_ICON, PEN_ICON, RECTANGLE_ICON, SAVE_ICON, WORD_ICON};
 
 impl ScreenshotApp {
     pub(crate) fn draw_toolbar(&mut self, ctx: &egui::Context) {
@@ -48,13 +48,13 @@ impl ScreenshotApp {
                         .show(ui, |ui| {
                             ui.horizontal(|ui| {
                                 // 工具选择
-                                self.purple_icon_button(ui, Tool::MoveBox, ctx, "src/icon/move.png");
-                                self.purple_icon_button(ui, Tool::Pen, ctx, "src/icon/pen.png");
-                                self.purple_icon_button(ui, Tool::Rectangle, ctx, "src/icon/rectangle.png");
-                                self.purple_icon_button(ui, Tool::Arrow, ctx, "src/icon/arrow.png");
-                                self.purple_icon_button(ui, Tool::Text, ctx, "src/icon/word.png");
-                                self.purple_icon_button(ui, Tool::Mosaic, ctx, "src/icon/mosaic.png");
-                                self.purple_icon_button(ui, Tool::Number, ctx, "src/icon/number.png");
+                                self.purple_icon_button(ui, Tool::MoveBox, ctx, MOVE_ICON, "move");
+                                self.purple_icon_button(ui, Tool::Pen, ctx, PEN_ICON, "pen");
+                                self.purple_icon_button(ui, Tool::Rectangle, ctx, RECTANGLE_ICON, "rectangle");
+                                self.purple_icon_button(ui, Tool::Arrow, ctx, ARROW_ICON, "arrow");
+                                self.purple_icon_button(ui, Tool::Text, ctx, WORD_ICON, "word");
+                                self.purple_icon_button(ui, Tool::Mosaic, ctx, MOSAIC_ICON, "mosaic");
+                                self.purple_icon_button(ui, Tool::Number, ctx, NUMBER_ICON, "number");
 
                                 // 颜色选择
                                 self.custom_color_picker(ui, ctx);
@@ -62,17 +62,17 @@ impl ScreenshotApp {
                                 // ui.add(egui::Slider::new(&mut self.brush_size, 1.0..=20.0));
 
                                 // 操作： 复制，保存，退出
-                                self.purple_icon_button(ui, Tool::Button, ctx, "src/icon/copy.png").clicked().then(|| {
+                                self.purple_icon_button(ui, Tool::Button, ctx, COPY_ICON, "copy").clicked().then(|| {
                                     self.copy_to_clipboard();
                                     ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                                 });
 
-                                self.purple_icon_button(ui, Tool::Button, ctx, "src/icon/save.png").clicked().then(|| {
+                                self.purple_icon_button(ui, Tool::Button, ctx, SAVE_ICON, "save").clicked().then(|| {
                                     ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                                     self.save_screenshot();
                                 });
 
-                                self.purple_icon_button(ui, Tool::Button, ctx, "src/icon/exit.png").clicked().then(|| {
+                                self.purple_icon_button(ui, Tool::Button, ctx, EXIT_ICON, "exit").clicked().then(|| {
                                     ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                                 });
                             });
@@ -136,8 +136,8 @@ impl ScreenshotApp {
         }
     }
 
-    pub fn purple_icon_button(&mut self, ui: &mut Ui, tool: Tool, ctx: &egui::Context, icon_path: &str) -> Response {
-        let icon = load_texture_from_png(ctx, icon_path).unwrap();
+    pub fn purple_icon_button(&mut self, ui: &mut Ui, tool: Tool, ctx: &egui::Context, icon_bytes: &[u8], icon_id: &str) -> Response {
+        let icon = load_texture_from_png(ctx, icon_bytes, icon_id).unwrap();
         let selected = self.current_tool == tool;
         let button_size = Vec2::new(30.0, 30.0);
 

@@ -27,8 +27,8 @@ build_linux_arm64() {
 # 编译Windows版本
 build_windows() {
     echo "编译Windows版本..."
-    cargo build --release --target=x86_64-pc-windows-msvc
-    echo "输出文件: target/x86_64-pc-windows-msvc/release/screenshot.exe"
+    cargo build --release --target=x86_64-pc-windows-gnu
+    echo "输出文件: target/x86_64-pc-windows-gnu/release/screenshot.exe"
 }
 
 # 编译macOS ARM64版本
