@@ -47,7 +47,9 @@ impl TextInputState {
             position,
             text: String::new(),
             is_active: true,
-            widget_id: Id::new(format!("text_input_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos())), // 使用固定ID或生成唯一ID
+            // 使用下面这个windows下销毁输入框会报错
+            // widget_id: Id::new(format!("text_input_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos())),
+            widget_id: Id::new("text_input".to_string()), // 使用固定ID或生成唯一ID
             has_focus: false,
             last_interaction_time: 0.0,
         }
