@@ -1,67 +1,83 @@
 use arboard::Clipboard;
 use device_query::MousePosition;
 use eframe::emath::{Pos2, Rect};
-use egui::Color32;
+use egui::{Color32};
 use image::{ImageBuffer, Rgba};
 use crate::app_default::{Annotation, MouseSelectionRect, ScreenshotApp, Tool};
 use crate::ui::{draw_simple_char, get_screen_rect};
 
 impl ScreenshotApp {
 
-    pub fn save_screenshot(&self) {
-        if self.selection_rect.is_none() {
-            return;
-        }
-        if let Some(cropped_image) = self.crop_selection(self.selection_rect.unwrap(), &self.annotations) {
-            let now = chrono::Local::now();
-            let filename = now.format("screenshot_%Y-%m-%d_%H-%M-%S.png").to_string();
-            let file_save_dialog = rfd::FileDialog::new();
-            let save_path = file_save_dialog.set_file_name(filename.as_str())
-                .add_filter("PNG Image", &["png"])
-                .add_filter("JPEG Image", &["jpg", "jpeg"])
-                .save_file();
-            if let Some(path) = save_path {
-                // 根据文件扩展名自动选择保存格式
-                let format = match path.as_path().extension().and_then(|e| e.to_str()) {
-                    Some("jpg") | Some("jpeg") => image::ImageFormat::Jpeg,
-                    _ => image::ImageFormat::Png,
-                };
-                // 执行实际保存操作
-                if let Err(e) = cropped_image.save_with_format(&path, format) {
-                    eprintln!("保存失败: {:?}", e);
-                } else {
-                    println!("截图已成功保存至: {:?}", path.as_path());
-                }
+    // pub fn xcap_capture_region(&self) -> Result<ImageBuffer<Rgba<u8>, Vec<u8>>, String> {
+    //     let x = self.selection_start.x.min(self.selection_end.x).min((self.screens[0].width().unwrap() - 1) as f32);
+    //     let y = self.selection_start.y.min(self.selection_end.y).min((self.screens[0].height().unwrap() - 1) as f32);
+    //     let width = (self.selection_start.x - self.selection_end.x).abs().min((self.screens[0].width().unwrap() - 1) as f32);
+    //     let height = (self.selection_start.y - self.selection_end.y).abs().min((self.screens[0].height().unwrap() - 1) as f32);
+    //     let image = self.screens[0].capture_region(x as u32, y as u32, width as u32, height as u32).map_err(|e| e.to_string())?;
+    //     Ok(image)
+    // }
+
+    pub fn handle_file_dialog(&self, image: ImageBuffer<Rgba<u8>, Vec<u8>>) -> Result<(), String> {
+        let now = chrono::Local::now();
+        let filename = now.format("screenshot_%Y-%m-%d_%H-%M-%S.png").to_string();
+        let file_save_dialog = rfd::FileDialog::new();
+        let save_path = file_save_dialog.set_file_name(filename.as_str())
+            .add_filter("PNG Image", &["png"])
+            .add_filter("JPEG Image", &["jpg", "jpeg"])
+            .save_file();
+        if let Some(path) = save_path {
+            // 根据文件扩展名自动选择保存格式
+            let format = match path.as_path().extension().and_then(|e| e.to_str()) {
+                Some("jpg") | Some("jpeg") => image::ImageFormat::Jpeg,
+                _ => image::ImageFormat::Png,
+            };
+            // 执行实际保存操作
+            if let Err(e) = image.save_with_format(&path, format) {
+                return Err("保存失败".to_string());
+            } else {
+                println!("截图已成功保存至: {:?}", path.as_path());
             }
         }
+        Ok(())
     }
 
-    pub fn copy_to_clipboard(&self) {
-        if let Some(selection_rect) = self.selection_rect {
+    pub fn set_to_clipboard(&self, image: ImageBuffer<Rgba<u8>, Vec<u8>>) -> Result<(), String> {
+        let mut clipboard = Clipboard::new().map_err(|e| e.to_string())?;
+        let img_data = arboard::ImageData {
+            width: image.width() as usize,
+            height: image.height() as usize,
+            bytes: std::borrow::Cow::Borrowed(image.as_raw()),
+        };
+        clipboard.set_image(img_data).map_err(|e| e.to_string())?;
+        Ok(())
+    }
 
-            // 确保当前文本输入完成
-            let mut annotations = self.annotations.clone();
-            if let (Some(text_state), Some(annotation)) = (&self.text_input, &self.current_annotation) {
-                let mut new_annotation = annotation.clone();
-                new_annotation.text = text_state.text.clone();
-                annotations.push(new_annotation);
-            }
-
-            if let Some(cropped_image) = self.crop_selection(selection_rect, &annotations) {
-                // 转换为剪贴板格式
-                if let Ok(mut clipboard) = Clipboard::new() {
-                    let image_data = arboard::ImageData {
-                        width: cropped_image.width() as usize,
-                        height: cropped_image.height() as usize,
-                        bytes: std::borrow::Cow::Borrowed(&cropped_image.as_raw()),
-                    };
-
-                    if let Err(e) = clipboard.set_image(image_data) {
-                        eprintln!("Failed to copy to clipboard: {}", e);
-                    }
-                }
-            }
+    pub fn save_screenshot(&self) -> Result<(), String> {
+        if self.selection_rect.is_none() {
+            return Err("请选择要保存的图片".to_string());
         }
+        if let Some(cropped_image) = self.crop_selection(self.selection_rect.unwrap(), &self.annotations) {
+            self.handle_file_dialog(cropped_image)?;
+        }
+        Ok(())
+    }
+
+    pub fn copy_to_clipboard(&self) -> Result<(), String> {
+        if self.selection_rect.is_none() {
+            return Err("请选择要复制的图片".to_string());
+        }
+        let mut annotations = self.annotations.clone();
+        if let (Some(text_state), Some(annotation)) = (&self.text_input, &self.current_annotation) {
+            let mut new_annotation = annotation.clone();
+            new_annotation.text = text_state.text.clone();
+            annotations.push(new_annotation);
+        }
+
+        if let Some(cropped_image) = self.crop_selection(self.selection_rect.unwrap(), &annotations) {
+            // 转换为剪贴板格式
+            self.set_to_clipboard(cropped_image).map_err(|e| e.to_string())?;
+        }
+        Ok(())
     }
 
     fn crop_selection(&self, selection_rect: Rect, annotations: &Vec<Annotation>) -> Option<ImageBuffer<Rgba<u8>, Vec<u8>>> {

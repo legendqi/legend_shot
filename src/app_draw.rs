@@ -7,10 +7,23 @@ use crate::ui::get_screen_rect;
 impl ScreenshotApp {
     pub(crate) fn draw_screens(&self, ui: &mut egui::Ui) {
         for (_i, (screen, texture)) in self.screens.iter().zip(&self.display_textures).enumerate() {
-            let screen_rect = get_screen_rect(screen);
+            #[cfg(target_os = "linux")]
+            {
+                let screen_rect = get_screen_rect(screen);
+                // 绘制屏幕截图
+                ui.put(screen_rect, egui::Image::new(texture).fit_to_exact_size(screen_rect.size()));
+            }
 
-            // 绘制屏幕截图
-            ui.put(screen_rect, egui::Image::new(texture).fit_to_exact_size(screen_rect.size()));
+            #[cfg(target_os = "windows")]
+            {
+                let viewport_rect = ui.ctx().viewport_rect();
+                // 计算缩放比例，保持宽高比
+                let texture_size = texture.size_vec2();
+                let scale = (viewport_rect.width() / texture_size.x).min(viewport_rect.height() / texture_size.y);
+                let scaled_size = texture_size * scale;
+                let rect = Rect::from_center_size(viewport_rect.center(), scaled_size);
+                ui.put(rect, egui::Image::new(texture).shrink_to_fit());
+            }
         }
     }
 

@@ -37,6 +37,8 @@ impl ScreenshotApp {
             if toolbar_pos.y < screen_rect.min.y {
                 toolbar_pos.y = screen_rect.min.y + 10.0;
             }
+            
+            self.toolbar_position = toolbar_pos;
 
 
             egui::Area::new(Id::from("annotation_toolbar".to_string()))
@@ -63,13 +65,13 @@ impl ScreenshotApp {
 
                                 // 操作： 复制，保存，退出
                                 self.purple_icon_button(ui, Tool::Button, ctx, COPY_ICON, "copy").clicked().then(|| {
-                                    self.copy_to_clipboard();
+                                    let _ = self.copy_to_clipboard();
                                     ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                                 });
 
                                 self.purple_icon_button(ui, Tool::Button, ctx, SAVE_ICON, "save").clicked().then(|| {
+                                    let _ = self.save_screenshot();
                                     ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                                    self.save_screenshot();
                                 });
 
                                 self.purple_icon_button(ui, Tool::Button, ctx, EXIT_ICON, "exit").clicked().then(|| {
