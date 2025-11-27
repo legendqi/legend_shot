@@ -2,6 +2,8 @@ use device_query::{DeviceQuery, MousePosition};
 use eframe::emath::{Pos2, Rect};
 use eframe::epaint::{Color32, Shape, Stroke, StrokeKind};
 use crate::app_default::{Annotation, MouseSelectionRect, ScreenshotApp, TextInputState, Tool};
+
+#[cfg(target_os = "linux")]
 use crate::ui::get_screen_rect;
 
 impl ScreenshotApp {

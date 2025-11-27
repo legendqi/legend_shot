@@ -32,7 +32,7 @@ impl ScreenshotApp {
                 _ => image::ImageFormat::Png,
             };
             // 执行实际保存操作
-            if let Err(e) = image.save_with_format(&path, format) {
+            if let Err(_e) = image.save_with_format(&path, format) {
                 return Err("保存失败".to_string());
             } else {
                 println!("截图已成功保存至: {:?}", path.as_path());
