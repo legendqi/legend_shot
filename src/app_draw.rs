@@ -361,12 +361,6 @@ impl ScreenshotApp {
                 return;
             }
 
-            // 确保焦点
-            if !text_state.has_focus {
-                ui.memory_mut(|mem| mem.request_focus(text_state.widget_id));
-                text_state.has_focus = true;
-            }
-
             // 处理键盘输入
             ctx.input(|input| {
                 for event in &input.events {
