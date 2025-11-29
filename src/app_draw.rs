@@ -9,11 +9,10 @@ use crate::ui::get_screen_rect;
 impl ScreenshotApp {
     pub(crate) fn draw_screens(&self, ui: &mut egui::Ui) {
         for (_i, (screen, texture)) in self.screens.iter().zip(&self.display_textures).enumerate() {
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
             {
-                let screen_rect = get_screen_rect(screen);
                 // 绘制屏幕截图
-                ui.put(screen_rect, egui::Image::new(texture).fit_to_exact_size(screen_rect.size()));
+                ui.put(texture.rect, egui::Image::new(&texture.texture).fit_to_exact_size(screen_rect.size()));
             }
 
             #[cfg(target_os = "windows")]
@@ -264,7 +263,7 @@ impl ScreenshotApp {
                     new_rect.max = new_rect.max.min(combined_bounds.max);
 
                     new_mouse_rect.start = new_mouse_rect.start.max((0, 0));
-                    new_mouse_rect.end = new_mouse_rect.end.min((self.screen_with, self.screen_height));
+                    new_mouse_rect.end = new_mouse_rect.end.min((self.screen_width, self.screen_height));
 
                     // 确保选择框大小不变
                     let width = original_rect.width();
@@ -276,7 +275,7 @@ impl ScreenshotApp {
                     let max_x = combined_bounds.max.x - width;
                     let max_y = combined_bounds.max.y - height;
 
-                    let max_mouse_x = self.screen_with - mouse_width;
+                    let max_mouse_x = self.screen_width - mouse_width;
                     let max_mouse_y = self.screen_height - mouse_height;
 
                     new_rect.min.x = new_rect.min.x.clamp(combined_bounds.min.x, max_x);
