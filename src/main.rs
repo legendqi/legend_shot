@@ -9,6 +9,7 @@ mod app_handle;
 mod app;
 
 fn main() -> eframe::Result<()> {
+    let mut app = ScreenshotApp::default();
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_fullscreen(true)
@@ -18,15 +19,18 @@ fn main() -> eframe::Result<()> {
             .with_maximize_button(false)
             .with_minimize_button(false)
             .with_close_button(false)
+            .with_max_inner_size(egui::vec2(4096., 4096.))
             .with_transparent(true),
         ..Default::default()
     };
-    
-    
+
     eframe::run_native(
         "",
         options,
-        Box::new(|_cc| Ok(Box::new(ScreenshotApp::default()))),
+        Box::new(|_cc| {
+            let _ = app.capture_screens(&_cc.egui_ctx);
+            Ok(Box::new(app))
+        }),
     )?;
 
     Ok(())

@@ -1,10 +1,9 @@
 use device_query::{DeviceState, MousePosition};
-use eframe::emath::{Pos2, Rect, Vec2};
+use eframe::emath::{Pos2, Rect};
 use eframe::epaint::Color32;
 use egui::Id;
 use image::{ImageBuffer, Rgba};
 use xcap::Monitor;
-use crate::ui::get_screen_rect;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Tool {
@@ -63,16 +62,11 @@ pub struct MouseSelectionRect {
     pub end: MousePosition,
 }
 
-pub struct ScreenshotSegment {
-    pub texture: egui::TextureHandle,
-    pub rect: Rect, // 该片段在完整截图中的位置
-}
-
 
 pub struct ScreenshotApp {
     pub screens: Vec<Monitor>,
     pub screenshots: Vec<ImageBuffer<Rgba<u8>, Vec<u8>>>,
-    pub display_textures: Vec<ScreenshotSegment>,
+    pub display_textures: Vec<egui::TextureHandle>,
     pub original_selection_rect: Option<Rect>,
     pub mouse_original_selection_rect: Option<MouseSelectionRect>,
 
@@ -150,8 +144,6 @@ impl Default for ScreenshotApp {
     }
 }
 
-const MAX_SIZE: i32 = 2048;
-
 impl ScreenshotApp {
     pub(crate) fn capture_screens(&mut self, ctx: &egui::Context) -> Result<(), Box<dyn std::error::Error>> {
         self.screens = Monitor::all()?;
@@ -159,51 +151,25 @@ impl ScreenshotApp {
         self.display_textures.clear();
 
         for screen in &self.screens {
-            self.screen_width = screen.width().unwrap() as i32;
-            self.screen_height = screen.height().unwrap() as i32;
-            if self.screen_width <= MAX_SIZE && self.screen_height <= MAX_SIZE {
-                let image = screen.capture_image()?;
-                self.screenshots.push(image.clone());
-                let texture = self.get_image_texture(image, ctx, get_screen_rect(screen));
-                self.display_textures.push(texture);
-            } else {
-                let image_one = screen.capture_region(0u32, 0u32, MAX_SIZE as u32, self.screen_height as u32)?;
-                self.screenshots.push(image_one.clone());
-                let one_rect = Rect::from_min_size(
-                    Pos2::new(screen.x().unwrap() as f32, screen.y().unwrap() as f32),
-                    Vec2::new(MAX_SIZE as f32, screen.height().unwrap() as f32),
-                );
-                let texture_one = self.get_image_texture(image_one, ctx, one_rect);
-                self.display_textures.push(texture_one);
-                let image_two = screen.capture_region(MAX_SIZE as u32, 0u32, self.screen_width as u32 - MAX_SIZE as u32, self.screen_height as u32)?;
-                self.screenshots.push(image_two.clone());
-                let two_rect = Rect::from_min_size(
-                    Pos2::new(screen.x().unwrap() as f32 + MAX_SIZE as f32, screen.y().unwrap() as f32),
-                    Vec2::new(self.screen_width as f32 - MAX_SIZE as f32, screen.height().unwrap() as f32),
-                );
-                let texture_two = self.get_image_texture(image_two, ctx, two_rect);
-                self.display_textures.push(texture_two);
-            }
-            // 转换为 image crate 的格式
+            let image = screen.capture_image()?;
+            self.screen_width = image.width() as i32;
+            self.screen_height = image.height() as i32;
+            self.screenshots.push(image.clone());
 
+            // 创建 egui 纹理
+            let texture = ctx.load_texture(
+                format!("screen_{}", self.display_textures.len()),
+                egui::ColorImage::from_rgba_unmultiplied(
+                    [image.width() as usize, image.height() as usize],
+                    &image.to_vec(),
+                ),
+                egui::TextureOptions::LINEAR,
+            );
+
+            self.display_textures.push(texture);
         }
 
         Ok(())
-    }
-
-    fn get_image_texture(&self, image: ImageBuffer<Rgba<u8>, Vec<u8>>, ctx: &egui::Context, rect: Rect) -> ScreenshotSegment {
-        let texture = ctx.load_texture(
-            format!("screen_{}", self.display_textures.len()),
-            egui::ColorImage::from_rgba_unmultiplied(
-                [image.width() as usize, image.height() as usize],
-                &image.to_vec(),
-            ),
-            egui::TextureOptions::LINEAR,
-        );
-        ScreenshotSegment {
-            texture,
-            rect,
-        }
     }
 
     pub fn get_combined_bounds(&self) -> Rect {
