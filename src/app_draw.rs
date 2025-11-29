@@ -12,18 +12,18 @@ impl ScreenshotApp {
             #[cfg(any(target_os = "linux", target_os = "macos"))]
             {
                 // 绘制屏幕截图
-                ui.put(texture.rect, egui::Image::new(&texture.texture).fit_to_exact_size(screen_rect.size()));
+                ui.put(texture.rect, egui::Image::new(&texture.texture).shrink_to_fit());
             }
 
             #[cfg(target_os = "windows")]
             {
                 let viewport_rect = ui.ctx().viewport_rect();
                 // 计算缩放比例，保持宽高比
-                let texture_size = texture.size_vec2();
+                let texture_size = texture.texture.size_vec2();
                 let scale = (viewport_rect.width() / texture_size.x).min(viewport_rect.height() / texture_size.y);
                 let scaled_size = texture_size * scale;
                 let rect = Rect::from_center_size(viewport_rect.center(), scaled_size);
-                ui.put(rect, egui::Image::new(texture).shrink_to_fit());
+                ui.put(rect, egui::Image::new(texture.texture).shrink_to_fit());
             }
 
             #[cfg(target_os = "macos")]
