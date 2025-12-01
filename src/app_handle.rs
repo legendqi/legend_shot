@@ -81,10 +81,17 @@ impl ScreenshotApp {
     }
 
     fn crop_selection(&self, selection_rect: Rect, annotations: &Vec<Annotation>) -> Option<ImageBuffer<Rgba<u8>, Vec<u8>>> {
-        let x = self.mouse_start.0.min(self.mouse_end.0);
-        let y = self.mouse_start.1.min(self.mouse_end.1);
-        let width = (self.mouse_end.0 - self.mouse_start.0).abs();
-        let height = (self.mouse_end.1 - self.mouse_start.1).abs();
+        let mut x = self.mouse_start.0.min(self.mouse_end.0);
+        let mut y = self.mouse_start.1.min(self.mouse_end.1);
+        let mut width = (self.mouse_end.0 - self.mouse_start.0).abs();
+        let mut height = (self.mouse_end.1 - self.mouse_start.1).abs();
+        #[cfg(target_os = "macos")]
+        {
+            x = (x * self.percentage) as i32;
+            y = (y * self.percentage) as i32;
+            width = (width * self.percentage) as i32;
+            height = (height * self.percentage) as i32;
+        }
 
         // 创建新的图像缓冲区 - 直接使用选择框的大小
         let mut cropped_image: ImageBuffer<Rgba<u8>, Vec<u8>> = ImageBuffer::new(width as u32, height as u32);
@@ -174,8 +181,8 @@ impl ScreenshotApp {
                 // 改进的文本绘制
                 if let Some(&pos) = annotation.mouse_points.first() {
                     let pos_rel = Pos2::new(
-                        (pos.0 - mouse_selection_rect.start.0).max(0) as f32,
-                        (pos.1 - mouse_selection_rect.start.1).max(0) as f32
+                        (pos.0 - mouse_selection_rect.start.0).max(0) as f32 * self.percentage,
+                        (pos.1 - mouse_selection_rect.start.1).max(0) as f32* self.percentage
                     );
 
                     if !annotation.text.is_empty() {
@@ -188,12 +195,12 @@ impl ScreenshotApp {
                 if let (Some(&start), Some(&end)) = (annotation.mouse_points.first(), annotation.mouse_points.last()) {
                     let rect_rel = Rect::from_min_max(
                         Pos2::new(
-                            (start.0  - mouse_selection_rect.start.0).max(0) as f32,
-                            (start.1  - mouse_selection_rect.start.1).max(0) as f32
+                            (start.0  - mouse_selection_rect.start.0).max(0) as f32 * self.percentage,
+                            (start.1  - mouse_selection_rect.start.1).max(0) as f32 * self.percentage
                         ),
                         Pos2::new(
-                            (end.0 - mouse_selection_rect.start.0).min(image.width() as i32) as f32,
-                            (end.1 - mouse_selection_rect.start.1).min(image.height() as i32) as f32
+                            (end.0 - mouse_selection_rect.start.0).min(image.width() as i32) as f32 * self.percentage, 
+                            (end.1 - mouse_selection_rect.start.1).min(image.height() as i32) as f32 * self.percentage
                         )
                     );
 
@@ -203,7 +210,7 @@ impl ScreenshotApp {
             Tool::Number => {
                 // 序号绘制
                 if let Some(&pos) = annotation.mouse_points.first() {
-                    let pos: MousePosition = ((pos.0 - mouse_selection_rect.start.0).max(0), (pos.1 - mouse_selection_rect.start.1).max(0));
+                    let pos: MousePosition = (((pos.0 - mouse_selection_rect.start.0).max(0) as f32 * self.percentage) as i32, ((pos.1 - mouse_selection_rect.start.1).max(0) as f32 * self.percentage) as i32);
                     self.draw_number(image, pos, &annotation.number.unwrap().to_string(), color);
                 }
             }

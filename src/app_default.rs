@@ -107,6 +107,8 @@ pub struct ScreenshotApp {
 
     pub screen_width: i32, // 屏幕宽度
     pub screen_height: i32, // 屏幕高度
+
+    pub percentage: f32,
 }
 
 impl Default for ScreenshotApp {
@@ -144,6 +146,7 @@ impl Default for ScreenshotApp {
             device_state: DeviceState::new(),
             screen_width: 0,
             screen_height: 0,
+            percentage: 1.0,
         }
     }
 }

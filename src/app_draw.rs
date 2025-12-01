@@ -7,20 +7,19 @@ use crate::app_default::{Annotation, MAX_TEXTURE_SIZE, MouseSelectionRect, Scree
 use crate::ui::get_screen_rect;
 
 impl ScreenshotApp {
-    pub(crate) fn draw_screens(&self, ui: &mut egui::Ui) {
+    pub(crate) fn draw_screens(&mut self, ui: &mut egui::Ui) {
         if self.screen_width > MAX_TEXTURE_SIZE as i32 || self.screen_height > MAX_TEXTURE_SIZE as i32 {
             for (x, y, texture_handle) in &self.display_textures_split {
                 let viewport_rect = ui.ctx().viewport_rect();
-                let mut percentage = 1.0;
                 let tile_size = texture_handle.size();
                 if self.screen_width > MAX_TEXTURE_SIZE as i32 {
-                    percentage = self.screen_height as f32 / viewport_rect.max.y;
+                    self.percentage = self.screen_height as f32 / viewport_rect.max.y;
                 } else if self.screen_height > MAX_TEXTURE_SIZE as i32 {
-                    percentage = self.screen_width as f32 / viewport_rect.max.x;
+                    self.percentage = self.screen_width as f32 / viewport_rect.max.x;
                 }
                 let rect = Rect::from_min_size(
-                    egui::pos2(*x as f32 / percentage, *y as f32 /  percentage),
-                    egui::vec2(tile_size[0] as f32 / percentage, tile_size[1] as f32 / percentage),
+                    egui::pos2(*x as f32 / self.percentage, *y as f32 /  self.percentage),
+                    egui::vec2(tile_size[0] as f32 / self.percentage, tile_size[1] as f32 / self.percentage),
                 );
                 // 将瓦片绘制到对应的位置
                 ui.put(rect, egui::Image::new(texture_handle).shrink_to_fit());
