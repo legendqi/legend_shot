@@ -10,6 +10,7 @@ mod app;
 
 fn main() -> eframe::Result<()> {
     let mut app = ScreenshotApp::default();
+    let _ = app.capture_screens();
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_fullscreen(true)
@@ -28,7 +29,6 @@ fn main() -> eframe::Result<()> {
         "",
         options,
         Box::new(|_cc| {
-            let _ = app.capture_screens(&_cc.egui_ctx);
             Ok(Box::new(app))
         }),
     )?;

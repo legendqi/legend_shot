@@ -5,10 +5,8 @@ impl App for ScreenshotApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.window_rect = ctx.viewport_rect();
         // 首次运行截图
-        if self.screenshots.is_empty() {
-            if let Err(e) = self.capture_screens(ctx) {
-                eprintln!("Failed to capture screens: {}", e);
-            }
+        if self.display_textures_split.is_empty() {
+            self.screen_to_texture(ctx);
         }
         // 主界面
         egui::CentralPanel::default()
