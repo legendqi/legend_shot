@@ -133,7 +133,7 @@ impl Default for ScreenshotApp {
             annotations: Vec::new(),
             current_annotation: None,
             brush_size: 3.0,
-            annotation_color: Color32::RED,
+            annotation_color: Color32::BLUE,
             text_input: None,
             number_input: None,
             tool_bar_focused: false,
