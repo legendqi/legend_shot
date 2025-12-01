@@ -108,7 +108,7 @@ impl ScreenshotApp {
                 ui.painter().add(Shape::rect_stroke(
                     clipped_selection,
                     egui::CornerRadius::ZERO,
-                    Stroke::new(2.0, Color32::RED),
+                    Stroke::new(1.0, Color32::BLUE),
                     StrokeKind::Inside
                 ));
             } else {
@@ -228,6 +228,11 @@ impl ScreenshotApp {
                     text_state.text.pop();
                 }
             });
+
+            // if ui.input(|i| i.key_pressed(egui::Key::Copy)) {
+            //     let _ = self.copy_to_clipboard();
+            //     ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            // }
 
             // ESC 键取消文本输入
             if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
