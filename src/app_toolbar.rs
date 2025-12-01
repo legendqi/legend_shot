@@ -156,21 +156,22 @@ impl ScreenshotApp {
             ui.painter().circle_filled(
                 response.rect.center(),
                 response.rect.width() / 2.0, // 圆角为0
-                Color32::from_rgb(128, 0, 128), // 选中或悬停时为紫色
+                Color32::BLUE,
+                // Color32::from_rgb(128, 0, 128), // 选中或悬停时为蓝色
             );
         } else if is_hovered_or_focused {
             self.tool_bar_focused = true;
             ui.painter().circle_filled(
                 response.rect.center(),
                 response.rect.width() / 2.0, // 圆角为0
-                Color32::from_rgb(128, 0, 128), // 选中或悬停时为紫色
+                Color32::BLUE, // 选中或悬停时为蓝色
             );
         }
         else {
             ui.painter().circle_filled(
                 response.rect.center(),
                 response.rect.width() / 2.0, // 圆角为0
-                Color32::from_rgb(128, 80, 128), // 初始状态为淡紫色
+                Color32::from_rgb(0, 100, 255), // 初始状态为淡紫色
             );
         }
         // 绘制图标
