@@ -14,9 +14,9 @@ impl ScreenshotApp {
                 let mut percentage = 1.0;
                 let tile_size = texture_handle.size();
                 if self.screen_width > MAX_TEXTURE_SIZE as i32 {
-                    percentage = (self.screen_height as f32 / viewport_rect.max.y).min(1.0);
+                    percentage = self.screen_height as f32 / viewport_rect.max.y;
                 } else if self.screen_height > MAX_TEXTURE_SIZE as i32 {
-                    percentage = (self.screen_width as f32 / viewport_rect.max.x).min(1.0);
+                    percentage = self.screen_width as f32 / viewport_rect.max.x;
                 }
                 let rect = Rect::from_min_size(
                     egui::pos2(*x as f32 / percentage, *y as f32 /  percentage),
