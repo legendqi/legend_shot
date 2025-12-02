@@ -87,10 +87,10 @@ impl ScreenshotApp {
         let mut height = (self.mouse_end.1 - self.mouse_start.1).abs();
         #[cfg(target_os = "macos")]
         {
-            x = (x * self.percentage) as i32;
-            y = (y * self.percentage) as i32;
-            width = (width * self.percentage) as i32;
-            height = (height * self.percentage) as i32;
+            x = (x * self.scale) as i32;
+            y = (y * self.scale) as i32;
+            width = (width * self.scale) as i32;
+            height = (height * self.scale) as i32;
         }
         
         // 查找包含选择区域的屏幕
