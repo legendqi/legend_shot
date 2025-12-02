@@ -7,13 +7,7 @@ impl ScreenshotApp {
     pub(crate) fn draw_screens(&mut self, ui: &mut egui::Ui) {
         if self.screen_width > MAX_TEXTURE_SIZE as i32 || self.screen_height > MAX_TEXTURE_SIZE as i32 {
             for (x, y, texture_handle) in &self.display_textures_split {
-                let viewport_rect = ui.ctx().viewport_rect();
                 let tile_size = texture_handle.size();
-                if self.screen_width > MAX_TEXTURE_SIZE as i32 {
-                    self.scale = self.screen_height as f32 / viewport_rect.max.y;
-                } else if self.screen_height > MAX_TEXTURE_SIZE as i32 {
-                    self.scale = self.screen_width as f32 / viewport_rect.max.x;
-                }
                 let rect = Rect::from_min_size(
                     egui::pos2(*x as f32 / self.scale, *y as f32 /  self.scale),
                     egui::vec2(tile_size[0] as f32 / self.scale, tile_size[1] as f32 / self.scale),

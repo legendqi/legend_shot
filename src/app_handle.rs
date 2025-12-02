@@ -174,7 +174,7 @@ impl ScreenshotApp {
                 // 改进的文本绘制
                 if let Some(&pos) = annotation.mouse_points.first() {
                     let pos_rel = Pos2::new(
-                        (pos.0 - mouse_selection_rect.start.0).max(0) as f32 * self.scale,
+                        (pos.0 - mouse_selection_rect.start.0).max(0) as f32,
                         (pos.1 - mouse_selection_rect.start.1).max(0) as f32* self.scale
                     );
 
@@ -188,12 +188,12 @@ impl ScreenshotApp {
                 if let (Some(&start), Some(&end)) = (annotation.mouse_points.first(), annotation.mouse_points.last()) {
                     let rect_rel = Rect::from_min_max(
                         Pos2::new(
-                            (start.0  - mouse_selection_rect.start.0).max(0) as f32 * self.scale,
-                            (start.1  - mouse_selection_rect.start.1).max(0) as f32 * self.scale
+                            (start.0  - mouse_selection_rect.start.0).max(0) as f32,
+                            (start.1  - mouse_selection_rect.start.1).max(0) as f32
                         ),
                         Pos2::new(
-                            (end.0 - mouse_selection_rect.start.0).min(image.width() as i32) as f32 * self.scale, 
-                            (end.1 - mouse_selection_rect.start.1).min(image.height() as i32) as f32 * self.scale
+                            (end.0 - mouse_selection_rect.start.0).min(image.width() as i32) as f32, 
+                            (end.1 - mouse_selection_rect.start.1).min(image.height() as i32) as f32
                         )
                     );
 
@@ -203,7 +203,7 @@ impl ScreenshotApp {
             Tool::Number => {
                 // 序号绘制
                 if let Some(&pos) = annotation.mouse_points.first() {
-                    let pos: MousePosition = (((pos.0 - mouse_selection_rect.start.0).max(0) as f32 * self.scale) as i32, ((pos.1 - mouse_selection_rect.start.1).max(0) as f32 * self.scale) as i32);
+                    let pos: MousePosition = (((pos.0 - mouse_selection_rect.start.0).max(0) as f32) as i32, ((pos.1 - mouse_selection_rect.start.1).max(0) as f32) as i32);
                     self.draw_number(image, pos, &annotation.number.unwrap().to_string(), color);
                 }
             }

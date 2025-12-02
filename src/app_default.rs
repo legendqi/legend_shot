@@ -157,7 +157,7 @@ impl ScreenshotApp {
         self.screens = Monitor::all()?;
         self.screenshots.clear();
         for screen in &self.screens {
-            println!("!!!!!!!!!!!!!!!!{}", screen.scale_factor().unwrap());
+            self.scale = screen.scale_factor().unwrap();
             let image = screen.capture_image()?;
             let (width, height) = image.dimensions();
             self.screen_width = width as i32;
