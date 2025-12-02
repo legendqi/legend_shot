@@ -81,18 +81,17 @@ impl ScreenshotApp {
     }
 
     fn crop_selection(&self, selection_rect: Rect, annotations: &Vec<Annotation>) -> Option<ImageBuffer<Rgba<u8>, Vec<u8>>> {
-        let mut x = self.mouse_start.0.min(self.mouse_end.0);
-        let mut y = self.mouse_start.1.min(self.mouse_end.1);
-        let mut width = (self.mouse_end.0 - self.mouse_start.0).abs();
-        let mut height = (self.mouse_end.1 - self.mouse_start.1).abs();
-        #[cfg(target_os = "macos")]
-        {
-            x = (x * self.scale) as i32;
-            y = (y * self.scale) as i32;
-            width = (width * self.scale) as i32;
-            height = (height * self.scale) as i32;
-        }
-        
+        let x = ((self.mouse_start.0.min(self.mouse_end.0) as f32) * self.image_scale) as i32;
+        let y = ((self.mouse_start.1.min(self.mouse_end.1) as f32) * self.image_scale) as i32;
+        let width = ((self.mouse_end.0 - self.mouse_start.0).abs() as f32 * self.image_scale) as i32;
+        let height = ((self.mouse_end.1 - self.mouse_start.1).abs() as f32 * self.image_scale) as i32;
+        // println!("self.#############image_scale:{}", self.image_scale);
+        // if self.image_scale != 0.0 {
+        //     x = (x as f32 * self.image_scale) as i32;
+        //     y = (y as f32 * self.image_scale) as i32;
+        //     width = (width as f32 * self.image_scale) as i32;
+        //     height = (height as f32 * self.image_scale) as i32;
+        // }
         // 查找包含选择区域的屏幕
         for (screen, screenshot) in self.screens.iter().zip(&self.screenshots) {
             let screen_rect = get_screen_rect(screen);
@@ -145,8 +144,10 @@ impl ScreenshotApp {
                 // 修复画笔断断续续问题：使用更平滑的Bresenham算法
                 for window in annotation.mouse_points.windows(2) {
                     if let [start, end] = window {
-                        let start_rel: MousePosition = (start.0 - mouse_selection_rect.start.0, start.1 - mouse_selection_rect.start.1);
-                        let end_rel: MousePosition = (end.0 - mouse_selection_rect.start.0, end.1 - mouse_selection_rect.start.1);
+                        // let start_rel: MousePosition = (start.0 - mouse_selection_rect.start.0, start.1 - mouse_selection_rect.start.1);
+                        // let end_rel: MousePosition = (end.0 - mouse_selection_rect.start.0, end.1 - mouse_selection_rect.start.1);
+                        let start_rel: MousePosition = (((start.0 - mouse_selection_rect.start.0) as f32 * self.image_scale) as i32, ((start.1 - mouse_selection_rect.start.1) as f32 * self.image_scale) as i32);
+                        let end_rel: MousePosition = (((end.0 - mouse_selection_rect.start.0) as f32 * self.image_scale) as i32, ((end.1 - mouse_selection_rect.start.1) as f32 * self.image_scale) as i32);
                         // 修复：使用浮点坐标转换确保连续
                         self.draw_smooth_line(image, start_rel, end_rel, color, annotation);
                     }
@@ -159,13 +160,13 @@ impl ScreenshotApp {
             Tool::Arrow => {
                 // 修复：实心箭头绘制
                 if let (Some(&start), Some(&end)) = (annotation.mouse_points.first(), annotation.mouse_points.last()) {
-                    let start_rel: MousePosition = (start.0 - mouse_selection_rect.start.0, start.1 - mouse_selection_rect.start.1);
-                    let end_rel: MousePosition = (end.0 - mouse_selection_rect.start.0, end.1 - mouse_selection_rect.start.1);
+                    let start_rel: MousePosition = (((start.0 - mouse_selection_rect.start.0) as f32 * self.image_scale) as i32, ((start.1 - mouse_selection_rect.start.1) as f32 * self.image_scale) as i32);
+                    let end_rel: MousePosition = (((end.0 - mouse_selection_rect.start.0) as f32 * self.image_scale) as i32, ((end.1 - mouse_selection_rect.start.1) as f32 * self.image_scale) as i32);
 
                     // 绘制箭头线
                     self.draw_smooth_line(image, start_rel, end_rel, color, annotation);
-                    let end_pos = Pos2::new(end_rel.0 as f32, end_rel.1 as f32);
-                    let start_pos = Pos2::new(start_rel.0 as f32, start_rel.1 as f32);
+                    let end_pos = Pos2::new(end_rel.0 as f32 * self.image_scale, end_rel.1 as f32 * self.image_scale);
+                    let start_pos = Pos2::new(start_rel.0 as f32 * self.image_scale, start_rel.1 as f32 * self.image_scale);
                     // 绘制实心箭头头
                     self.draw_filled_arrow_head(image, end_pos, start_pos, color);
                 }
@@ -174,8 +175,8 @@ impl ScreenshotApp {
                 // 改进的文本绘制
                 if let Some(&pos) = annotation.mouse_points.first() {
                     let pos_rel = Pos2::new(
-                        (pos.0 - mouse_selection_rect.start.0).max(0) as f32,
-                        (pos.1 - mouse_selection_rect.start.1).max(0) as f32* self.scale
+                        (pos.0 - mouse_selection_rect.start.0).max(0) as f32 * self.image_scale,
+                        (pos.1 - mouse_selection_rect.start.1).max(0) as f32 * self.image_scale
                     );
 
                     if !annotation.text.is_empty() {
@@ -188,12 +189,12 @@ impl ScreenshotApp {
                 if let (Some(&start), Some(&end)) = (annotation.mouse_points.first(), annotation.mouse_points.last()) {
                     let rect_rel = Rect::from_min_max(
                         Pos2::new(
-                            (start.0  - mouse_selection_rect.start.0).max(0) as f32,
-                            (start.1  - mouse_selection_rect.start.1).max(0) as f32
+                            (start.0  - mouse_selection_rect.start.0).max(0) as f32 * self.image_scale,
+                            (start.1  - mouse_selection_rect.start.1).max(0) as f32 * self.image_scale
                         ),
                         Pos2::new(
-                            (end.0 - mouse_selection_rect.start.0).min(image.width() as i32) as f32, 
-                            (end.1 - mouse_selection_rect.start.1).min(image.height() as i32) as f32
+                            (end.0 - mouse_selection_rect.start.0).min(image.width() as i32) as f32 * self.image_scale,
+                            (end.1 - mouse_selection_rect.start.1).min(image.height() as i32) as f32 * self.image_scale
                         )
                     );
 
@@ -203,7 +204,7 @@ impl ScreenshotApp {
             Tool::Number => {
                 // 序号绘制
                 if let Some(&pos) = annotation.mouse_points.first() {
-                    let pos: MousePosition = (((pos.0 - mouse_selection_rect.start.0).max(0) as f32) as i32, ((pos.1 - mouse_selection_rect.start.1).max(0) as f32) as i32);
+                    let pos: MousePosition = (((pos.0 - mouse_selection_rect.start.0).max(0) as f32 * self.image_scale) as i32, ((pos.1 - mouse_selection_rect.start.1).max(0) as f32 * self.image_scale) as i32);
                     self.draw_number(image, pos, &annotation.number.unwrap().to_string(), color);
                 }
             }

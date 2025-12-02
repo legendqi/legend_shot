@@ -2,7 +2,7 @@ use device_query::{DeviceState, MousePosition};
 use eframe::emath::{Pos2, Rect};
 use eframe::epaint::{Color32, ColorImage};
 use egui::Id;
-use image::{GenericImageView, ImageBuffer, Rgba};
+use image::{ImageBuffer, Rgba};
 use xcap::Monitor;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -107,7 +107,8 @@ pub struct ScreenshotApp {
     pub screen_width: i32, // 屏幕宽度
     pub screen_height: i32, // 屏幕高度
 
-    pub scale: f32,
+    pub screen_scale: f32,
+    pub image_scale: f32,
 }
 
 impl Default for ScreenshotApp {
@@ -144,7 +145,8 @@ impl Default for ScreenshotApp {
             device_state: DeviceState::new(),
             screen_width: 0,
             screen_height: 0,
-            scale: 1.0,
+            screen_scale: 1.0,
+            image_scale: 1.0,
         }
     }
 }
@@ -157,7 +159,7 @@ impl ScreenshotApp {
         self.screens = Monitor::all()?;
         self.screenshots.clear();
         for screen in &self.screens {
-            self.scale = screen.scale_factor().unwrap();
+            self.screen_scale = screen.scale_factor().unwrap();
             let image = screen.capture_image()?;
             let (width, height) = image.dimensions();
             self.screen_width = width as i32;
@@ -166,6 +168,7 @@ impl ScreenshotApp {
                 self.screenshots_positions.push((0, 0, image.clone()));
                 self.screenshots.push(image.clone());
             } else {
+                // 超过纹理，使用图片压缩方案
                 let new_width;
                 let new_height;
                 let max_size = MAX_TEXTURE_SIZE as u32;
@@ -185,7 +188,7 @@ impl ScreenshotApp {
                 self.screenshots_positions.push((0, 0, resized_img.clone()));
                 self.screenshots.push(resized_img.clone());
 
-
+                // 分块纹理，处理，暂时注释，使用图片压缩方案
                 // for y in (0..height).step_by(MAX_TEXTURE_SIZE) {
                 //     for x in (0..width).step_by(MAX_TEXTURE_SIZE) {
                 //         let tile_width = (width - x).min(MAX_TEXTURE_SIZE as u32);
