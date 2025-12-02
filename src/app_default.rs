@@ -157,6 +157,7 @@ impl ScreenshotApp {
         self.screens = Monitor::all()?;
         self.screenshots.clear();
         for screen in &self.screens {
+            println!("!!!!!!!!!!!!!!!!{}", screen.scale_factor().unwrap());
             let image = screen.capture_image()?;
             let (width, height) = image.dimensions();
             self.screen_width = width as i32;
@@ -165,15 +166,35 @@ impl ScreenshotApp {
                 self.screenshots_positions.push((0, 0, image.clone()));
                 self.screenshots.push(image.clone());
             } else {
-                for y in (0..height).step_by(MAX_TEXTURE_SIZE) {
-                    for x in (0..width).step_by(MAX_TEXTURE_SIZE) {
-                        let tile_width = (width - x).min(MAX_TEXTURE_SIZE as u32);
-                        let tile_height = (height - y).min(MAX_TEXTURE_SIZE as u32);
-                        let tile = image.view(x, y, tile_width, tile_height).to_image();
-                        self.screenshots_positions.push((x as usize, y as usize, tile.clone()));
-                        self.screenshots.push(tile);
+                let new_width;
+                let new_height;
+                let max_size = MAX_TEXTURE_SIZE as u32;
+                if width > max_size || height > max_size {
+                    if width > height {
+                        new_width = max_size;
+                        new_height = (height as f32 * max_size as f32 / width as f32) as u32;
+                    } else {
+                        new_height = max_size;
+                        new_width = (width as f32 * max_size as f32 / height as f32) as u32;
                     }
+                } else {
+                    new_width = width;
+                    new_height = height;
                 }
+                let resized_img = image::imageops::resize(&image, new_width, new_height, image::imageops::FilterType::Lanczos3);
+                self.screenshots_positions.push((0, 0, resized_img.clone()));
+                self.screenshots.push(resized_img.clone());
+
+
+                // for y in (0..height).step_by(MAX_TEXTURE_SIZE) {
+                //     for x in (0..width).step_by(MAX_TEXTURE_SIZE) {
+                //         let tile_width = (width - x).min(MAX_TEXTURE_SIZE as u32);
+                //         let tile_height = (height - y).min(MAX_TEXTURE_SIZE as u32);
+                //         let tile = image.view(x, y, tile_width, tile_height).to_image();
+                //         self.screenshots_positions.push((x as usize, y as usize, tile.clone()));
+                //         self.screenshots.push(tile);
+                //     }
+                // }
             }
         }
         Ok(())
