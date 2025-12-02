@@ -5,7 +5,7 @@ use crate::app_default::{Annotation, MAX_TEXTURE_SIZE, MouseSelectionRect, Scree
 
 impl ScreenshotApp {
     pub(crate) fn draw_screens(&mut self, ui: &mut egui::Ui) {
-        if self.screen_width > MAX_TEXTURE_SIZE as i32 || self.screen_height > MAX_TEXTURE_SIZE as i32 && self.display_textures_split.len() > 1 {
+        if self.display_textures_split.len() > 1 && (self.screen_width > MAX_TEXTURE_SIZE as i32 || self.screen_height > MAX_TEXTURE_SIZE as i32)  {
             for (x, y, texture_handle) in &self.display_textures_split {
                 let tile_size = texture_handle.size();
                 let rect = Rect::from_min_size(
@@ -24,13 +24,10 @@ impl ScreenshotApp {
                 } else if self.screen_height > MAX_TEXTURE_SIZE as i32 {
                     self.image_scale = texture_size.x / viewport_rect.max.x;
                 }
-
-                println!("！！！！！！！！！！！！image_scale: {}", self.image_scale);
                 // 计算缩放比例，保持宽高比
                 let scale = (viewport_rect.width() / texture_size.x).min(viewport_rect.height() / texture_size.y);
                 let scaled_size = texture_size * scale;
                 let rect = Rect::from_center_size(viewport_rect.center(), scaled_size);
-                println!("！！！！！！！！！！！！scale: {}", scale);
                 // 将瓦片绘制到对应的位置
                 ui.put(rect, egui::Image::new(texture_handle).shrink_to_fit());
             }
