@@ -13,13 +13,13 @@ impl ScreenshotApp {
                 let viewport_rect = ui.ctx().viewport_rect();
                 let tile_size = texture_handle.size();
                 if self.screen_width > MAX_TEXTURE_SIZE as i32 {
-                    self.percentage = self.screen_height as f32 / viewport_rect.max.y;
+                    self.scale = self.screen_height as f32 / viewport_rect.max.y;
                 } else if self.screen_height > MAX_TEXTURE_SIZE as i32 {
-                    self.percentage = self.screen_width as f32 / viewport_rect.max.x;
+                    self.scale = self.screen_width as f32 / viewport_rect.max.x;
                 }
                 let rect = Rect::from_min_size(
-                    egui::pos2(*x as f32 / self.percentage, *y as f32 /  self.percentage),
-                    egui::vec2(tile_size[0] as f32 / self.percentage, tile_size[1] as f32 / self.percentage),
+                    egui::pos2(*x as f32 / self.scale, *y as f32 /  self.scale),
+                    egui::vec2(tile_size[0] as f32 / self.scale, tile_size[1] as f32 / self.scale),
                 );
                 // 将瓦片绘制到对应的位置
                 ui.put(rect, egui::Image::new(texture_handle).shrink_to_fit());
