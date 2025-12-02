@@ -2,7 +2,7 @@ use device_query::{DeviceState, MousePosition};
 use eframe::emath::{Pos2, Rect};
 use eframe::epaint::{Color32, ColorImage};
 use egui::Id;
-use image::{GenericImageView, ImageBuffer, Rgba, RgbaImage};
+use image::{GenericImageView, ImageBuffer, Rgba};
 use xcap::Monitor;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -66,8 +66,7 @@ pub struct MouseSelectionRect {
 pub struct ScreenshotApp {
     pub screens: Vec<Monitor>,
     pub screenshots: Vec<ImageBuffer<Rgba<u8>, Vec<u8>>>,
-    pub screenshots_positions:Vec<(usize,usize, ImageBuffer<Rgba<u8>, Vec<u8>>)>,
-    pub display_textures: Vec<egui::TextureHandle>,
+    pub screenshots_positions: Vec<(usize, usize, ImageBuffer<Rgba<u8>, Vec<u8>>)>,
     pub display_textures_split: Vec<(usize,usize,egui::TextureHandle)>,
     pub original_selection_rect: Option<Rect>,
     pub mouse_original_selection_rect: Option<MouseSelectionRect>,
@@ -108,7 +107,7 @@ pub struct ScreenshotApp {
     pub screen_width: i32, // 屏幕宽度
     pub screen_height: i32, // 屏幕高度
 
-    pub scale: f32, // 屏幕缩放比例
+    pub scale: f32,
 }
 
 impl Default for ScreenshotApp {
@@ -117,7 +116,6 @@ impl Default for ScreenshotApp {
             screens: Vec::new(),
             screenshots: Vec::new(),
             screenshots_positions: Vec::new(),
-            display_textures: Vec::new(),
             display_textures_split: Vec::new(),
             original_selection_rect: None,
             mouse_original_selection_rect: None,
@@ -146,7 +144,7 @@ impl Default for ScreenshotApp {
             device_state: DeviceState::new(),
             screen_width: 0,
             screen_height: 0,
-            scale: 0.0,
+            scale: 1.0,
         }
     }
 }
@@ -181,27 +179,27 @@ impl ScreenshotApp {
         Ok(())
     }
 
-    fn split_screenshot(&self, image: &RgbaImage, max_tile_size: u32) -> Vec<(usize, usize, RgbaImage)> {
-        let (width, height) = image.dimensions();
-        let mut tiles = Vec::new();
-
-        for y in (0..height).step_by(max_tile_size as usize) {
-            for x in (0..width).step_by(max_tile_size as usize) {
-                let tile_width = (width - x).min(max_tile_size);
-                let tile_height = (height - y).min(max_tile_size);
-
-                let tile: ImageBuffer<Rgba<u8>, Vec<u8>> = image.view(x, y, tile_width, tile_height).to_image();
-                tiles.push((x as usize, y as usize, tile));
-            }
-        }
-        tiles
-    }
+    // fn split_screenshot(&self, image: &RgbaImage, max_tile_size: u32) -> Vec<(usize, usize, RgbaImage)> {
+    //     let (width, height) = image.dimensions();
+    //     let mut tiles = Vec::new();
+    // 
+    //     for y in (0..height).step_by(max_tile_size as usize) {
+    //         for x in (0..width).step_by(max_tile_size as usize) {
+    //             let tile_width = (width - x).min(max_tile_size);
+    //             let tile_height = (height - y).min(max_tile_size);
+    // 
+    //             let tile: ImageBuffer<Rgba<u8>, Vec<u8>> = image.view(x, y, tile_width, tile_height).to_image();
+    //             tiles.push((x as usize, y as usize, tile));
+    //         }
+    //     }
+    //     tiles
+    // }
 
     pub fn screen_to_texture(&mut self, ctx: &egui::Context) {
         for (x, y, image) in self.screenshots_positions.clone() {
             let size = [image.width() as usize, image.height() as usize];
             let pixels = image.into_raw();
-            //             // 注意：这里假设 image crate 返回的是 RGBA 字节，与 egui 的 ColorImage 匹配
+            // 注意：这里假设 image crate 返回的是 RGBA 字节，与 egui 的 ColorImage 匹配
             let color_image = ColorImage::from_rgba_unmultiplied(size, &pixels);
             let texture = ctx.load_texture(
                 format!("screenshot_{}_{}", x, y),
@@ -211,56 +209,6 @@ impl ScreenshotApp {
             self.display_textures_split.push((x, y, texture));
         }
     }
-
-    // pub(crate) fn capture_screens(&mut self, ctx: &egui::Context) -> Result<(), Box<dyn std::error::Error>> {
-    //     self.screens = Monitor::all()?;
-    //     self.screenshots.clear();
-    //     self.display_textures.clear();
-    //     let mut tiles = Vec::new();
-    //     for screen in &self.screens {
-    //         let image = screen.capture_image()?;
-    //         let (width, height) = image.dimensions();
-    //         self.screen_width = width as i32;
-    //         self.screen_height = height as i32;
-    //         self.screenshots.push(image.clone());
-    //         // for y in (0..height).step_by(MAX_TEXTURE_SIZE) {
-    //         //     for x in (0..width).step_by(MAX_TEXTURE_SIZE) {
-    //         //         let tile_width = (width - x).min(MAX_TEXTURE_SIZE as u32);
-    //         //         let tile_height = (height - y).min(MAX_TEXTURE_SIZE as u32);
-    //         //         let tile: ImageBuffer<Rgb<u8>, Vec<u8>> = image.view(x, y, tile_width, tile_height).to_image();
-    //         //         tiles.push(tile);
-    //         //     }
-    //         // }
-    //         if width <= MAX_TEXTURE_SIZE as u32 && height <= MAX_TEXTURE_SIZE as u32 {
-    //             let texture = ctx.load_texture(
-    //                 format!("screen_{}", self.display_textures.len()),
-    //                 egui::ColorImage::from_rgba_unmultiplied(
-    //                     [image.width() as usize, image.height() as usize],
-    //                     &image.to_vec(),
-    //                 ),
-    //                 egui::TextureOptions::LINEAR,
-    //             );
-    //             self.display_textures.push(texture);
-    //         } else {
-    //             let tiles_temp =  split_screenshot(&image, MAX_TEXTURE_SIZE as u32);
-    //             tiles.extend(tiles_temp);
-    //         }
-    //
-    //     }
-    //     let tiles_new: Vec<(usize,usize,egui::TextureHandle)> = tiles.into_iter()
-    //         .enumerate()
-    //         .map(|(i, (x, y, tile))| {
-    //             let size = [tile.width() as usize, tile.height() as usize];
-    //             let pixels = tile.into_raw();
-    //             // 注意：这里假设 image crate 返回的是 RGBA 字节，与 egui 的 ColorImage 匹配
-    //             let color_image = ColorImage::from_rgba_unmultiplied(size, &pixels);
-    //             let texture_handle = ctx.load_texture(format!("tile_{}", i), color_image, Default::default());
-    //             (x, y, texture_handle)
-    //         })
-    //         .collect();
-    //     self.display_textures_split.extend(tiles_new);
-    //     Ok(())
-    // }
 
     pub fn get_combined_bounds(&self) -> Rect {
         if self.screens.is_empty() {

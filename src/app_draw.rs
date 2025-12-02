@@ -3,9 +3,6 @@ use eframe::emath::{Pos2, Rect};
 use eframe::epaint::{Color32, Shape, Stroke, StrokeKind};
 use crate::app_default::{Annotation, MAX_TEXTURE_SIZE, MouseSelectionRect, ScreenshotApp, TextInputState, Tool};
 
-#[cfg(any(target_os = "linux", target_os = "macos"))]
-use crate::ui::get_screen_rect;
-
 impl ScreenshotApp {
     pub(crate) fn draw_screens(&mut self, ui: &mut egui::Ui) {
         if self.screen_width > MAX_TEXTURE_SIZE as i32 || self.screen_height > MAX_TEXTURE_SIZE as i32 {
