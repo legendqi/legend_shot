@@ -34,6 +34,7 @@ pub struct Annotation {
 pub struct TextInputState {
     pub position: Pos2,
     pub text: String,
+    pub preedit: Option<String>, // (预编辑文本, 光标位置)
     pub is_active: bool,
     pub widget_id: Id, // 添加widget_id用于焦点管理
     pub has_focus: bool, // 新增：跟踪焦点状态
@@ -46,6 +47,7 @@ impl TextInputState {
         Self {
             position,
             text: String::new(),
+            preedit: None,
             is_active: true,
             // 使用下面这个windows下销毁输入框会报错
             // widget_id: Id::new(format!("text_input_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos())),

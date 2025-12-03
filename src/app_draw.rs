@@ -204,10 +204,34 @@ impl ScreenshotApp {
                 // 处理字符输入
                 for event in &input.events {
                     match event {
-                        egui::Event::Text(text) => {
-                            // 过滤控制字符，只添加可打印字符
-                            if !text.chars().next().map_or(false, |c| c.is_control()) {
+                        egui::Event::Ime(ime_event) => match ime_event {
+                            egui::ImeEvent::Enabled => {
+                                // IME 启用，通常不需要特别操作
+                            }
+                            egui::ImeEvent::Preedit(text) => {
+                                // 更新预编辑文本（用于显示下划线等）
+                                println!("Preedit: {}", text);
+                                text_state.preedit = Some(text.clone());
+                                // 注意：此时不要修改 text_state.text！
+                            }
+                            egui::ImeEvent::Commit(text) => {
+                                // 用户确认输入（如按回车或点击候选词）
                                 text_state.text.push_str(text);
+                                text_state.preedit = None; // 清除预编辑
+                            }
+                            egui::ImeEvent::Disabled => {
+                                text_state.preedit = None;
+                            }
+                        }
+                        egui::Event::Text(_text) => {
+                            // 在支持 IME 的平台上，纯 Text 事件可能只用于简单 ASCII 输入
+                            // 但为了兼容性（比如 Web），仍可保留
+                            // 不过注意：在 IME 活跃时，不应处理 Text 事件（避免重复）
+                            if text_state.preedit.is_none() {
+                                // 过滤控制字符
+                                if !_text.chars().next().map_or(false, |c| c.is_control()) {
+                                    text_state.text.push_str(_text);
+                                }
                             }
                         }
                         _ => {}

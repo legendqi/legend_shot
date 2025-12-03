@@ -85,13 +85,6 @@ impl ScreenshotApp {
         let y = ((self.mouse_start.1.min(self.mouse_end.1) as f32) * self.image_scale) as i32;
         let width = ((self.mouse_end.0 - self.mouse_start.0).abs() as f32 * self.image_scale) as i32;
         let height = ((self.mouse_end.1 - self.mouse_start.1).abs() as f32 * self.image_scale) as i32;
-        // println!("self.#############image_scale:{}", self.image_scale);
-        // if self.image_scale != 0.0 {
-        //     x = (x as f32 * self.image_scale) as i32;
-        //     y = (y as f32 * self.image_scale) as i32;
-        //     width = (width as f32 * self.image_scale) as i32;
-        //     height = (height as f32 * self.image_scale) as i32;
-        // }
         // 查找包含选择区域的屏幕
         for (screen, screenshot) in self.screens.iter().zip(&self.screenshots) {
             let screen_rect = get_screen_rect(screen);
@@ -165,8 +158,8 @@ impl ScreenshotApp {
 
                     // 绘制箭头线
                     self.draw_smooth_line(image, start_rel, end_rel, color, annotation);
-                    let end_pos = Pos2::new(end_rel.0 as f32 * self.image_scale, end_rel.1 as f32 * self.image_scale);
-                    let start_pos = Pos2::new(start_rel.0 as f32 * self.image_scale, start_rel.1 as f32 * self.image_scale);
+                    let end_pos = Pos2::new(end_rel.0 as f32, end_rel.1 as f32);
+                    let start_pos = Pos2::new(start_rel.0 as f32, start_rel.1 as f32);
                     // 绘制实心箭头头
                     self.draw_filled_arrow_head(image, end_pos, start_pos, color);
                 }
