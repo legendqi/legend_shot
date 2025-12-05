@@ -1,9 +1,17 @@
+use std::sync::{Arc, Mutex, mpsc};
+
 use device_query::{DeviceState, MousePosition};
 use eframe::emath::{Pos2, Rect};
 use eframe::epaint::{Color32, ColorImage};
 use egui::Id;
 use image::{ImageBuffer, Rgba};
 use xcap::Monitor;
+
+#[derive(Debug, Clone, Copy)]
+pub enum AppSignal {
+    Save,
+    Copy,
+}
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Tool {
@@ -16,7 +24,9 @@ pub enum Tool {
     Number,
     Mosaic,
     ColorPicker,
-    Button
+    Save,
+    Copy,
+    Exit
 }
 
 #[derive(Clone)]
@@ -111,10 +121,13 @@ pub struct ScreenshotApp {
 
     pub screen_scale: f32,
     pub image_scale: f32,
+    pub signal_sender: Option<Arc<Mutex<mpsc::Sender<AppSignal>>>>,
+    pub signal_receiver: Option<Arc<Mutex<mpsc::Receiver<AppSignal>>>>
 }
 
 impl Default for ScreenshotApp {
     fn default() -> Self {
+        let (sender, receiver) = mpsc::channel();
         Self {
             screens: Vec::new(),
             screenshots: Vec::new(),
@@ -149,6 +162,8 @@ impl Default for ScreenshotApp {
             screen_height: 0,
             screen_scale: 1.0,
             image_scale: 1.0,
+            signal_sender: Some(Arc::new(Mutex::new(sender))),
+            signal_receiver: Some(Arc::new(Mutex::new(receiver))),
         }
     }
 }

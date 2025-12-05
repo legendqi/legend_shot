@@ -8,14 +8,27 @@ use crate::ui::{draw_simple_char, get_screen_rect};
 
 impl ScreenshotApp {
 
-    // pub fn xcap_capture_region(&self) -> Result<ImageBuffer<Rgba<u8>, Vec<u8>>, String> {
-    //     let x = self.selection_start.x.min(self.selection_end.x).min((self.screens[0].width().unwrap() - 1) as f32);
-    //     let y = self.selection_start.y.min(self.selection_end.y).min((self.screens[0].height().unwrap() - 1) as f32);
-    //     let width = (self.selection_start.x - self.selection_end.x).abs().min((self.screens[0].width().unwrap() - 1) as f32);
-    //     let height = (self.selection_start.y - self.selection_end.y).abs().min((self.screens[0].height().unwrap() - 1) as f32);
-    //     let image = self.screens[0].capture_region(x as u32, y as u32, width as u32, height as u32).map_err(|e| e.to_string())?;
-    //     Ok(image)
-    // }
+    pub fn xcap_capture_region(&mut self) -> Result<ImageBuffer<Rgba<u8>, Vec<u8>>, String> {
+        let windows = xcap::Window::all().unwrap();
+        let window_image = windows[0].capture_image().map_err(|e| e.to_string())?;
+        let x = ((self.mouse_start.0.min(self.mouse_end.0) as f32) * self.image_scale) as i32;
+        let y = ((self.mouse_start.1.min(self.mouse_end.1) as f32) * self.image_scale) as i32;
+        let width = ((self.mouse_end.0 - self.mouse_start.0).abs() as f32 * self.image_scale) as i32;
+        let height = ((self.mouse_end.1 - self.mouse_start.1).abs() as f32 * self.image_scale) as i32;
+
+        let mut cropped_image: ImageBuffer<Rgba<u8>, Vec<u8>> = ImageBuffer::new(width as u32, height as u32);
+        // 复制原始截图内容
+        for src_y in y..(y + height) {
+            for src_x in x..(x + width) {
+                let dst_x = src_x - x;
+                let dst_y = src_y - y;
+
+                let pixel = window_image.get_pixel(src_x as u32, src_y as u32);
+                cropped_image.put_pixel(dst_x.try_into().unwrap(), dst_y.try_into().unwrap(), pixel.clone());
+            }
+        }
+        Ok(cropped_image)
+    }
 
     pub fn handle_file_dialog(&self, image: ImageBuffer<Rgba<u8>, Vec<u8>>) -> Result<(), String> {
         let now = chrono::Local::now();
@@ -52,17 +65,19 @@ impl ScreenshotApp {
         Ok(())
     }
 
-    pub fn save_screenshot(&self) -> Result<(), String> {
+    pub fn save_screenshot(&mut self) -> Result<(), String> {
         if self.selection_rect.is_none() {
             return Err("请选择要保存的图片".to_string());
         }
-        if let Some(cropped_image) = self.crop_selection(self.selection_rect.unwrap(), &self.annotations) {
-            self.handle_file_dialog(cropped_image)?;
-        }
+        let result_image = self.xcap_capture_region().map_err(|e| e.to_string())?;
+        self.handle_file_dialog(result_image)?;
+        // if let Some(cropped_image) = self.crop_selection(self.selection_rect.unwrap(), &self.annotations) {
+        //     self.handle_file_dialog(cropped_image)?;
+        // }
         Ok(())
     }
 
-    pub fn copy_to_clipboard(&self) -> Result<(), String> {
+    pub fn copy_to_clipboard(&mut self) -> Result<(), String> {
         if self.selection_rect.is_none() {
             return Err("请选择要复制的图片".to_string());
         }
@@ -72,11 +87,12 @@ impl ScreenshotApp {
             new_annotation.text = text_state.text.clone();
             annotations.push(new_annotation);
         }
-
-        if let Some(cropped_image) = self.crop_selection(self.selection_rect.unwrap(), &annotations) {
-            // 转换为剪贴板格式
-            self.set_to_clipboard(cropped_image).map_err(|e| e.to_string())?;
-        }
+        let result_image = self.xcap_capture_region().map_err(|e| e.to_string())?;
+        self.set_to_clipboard(result_image).map_err(|e| e.to_string())?;
+        // if let Some(cropped_image) = self.crop_selection(self.selection_rect.unwrap(), &annotations) {
+        //     // 转换为剪贴板格式
+        //     self.set_to_clipboard(cropped_image).map_err(|e| e.to_string())?;
+        // }
         Ok(())
     }
 

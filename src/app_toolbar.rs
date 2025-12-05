@@ -2,7 +2,7 @@ use eframe::emath::{Pos2, Rect, Vec2};
 use eframe::epaint::{Color32, Hsva, Shape, Stroke, StrokeKind};
 use egui::{color_picker, text_selection, Button, Id, Popup, PopupCloseBehavior, Response, Ui};
 use egui::color_picker::color_picker_hsva_2d;
-use crate::app_default::{Annotation, ScreenshotApp, Tool};
+use crate::app_default::{Annotation, AppSignal, ScreenshotApp, Tool};
 use crate::ui::{load_texture_from_png, ARROW_ICON, COPY_ICON, EXIT_ICON, MOSAIC_ICON, MOVE_ICON, NUMBER_ICON, PEN_ICON, RECTANGLE_ICON, SAVE_ICON, WORD_ICON};
 
 impl ScreenshotApp {
@@ -40,7 +40,6 @@ impl ScreenshotApp {
             
             self.toolbar_position = toolbar_pos;
 
-
             egui::Area::new(Id::from("annotation_toolbar".to_string()))
                 .fixed_pos(toolbar_pos)
                 .order(egui::Order::Foreground)
@@ -64,17 +63,38 @@ impl ScreenshotApp {
                                 // ui.add(egui::Slider::new(&mut self.brush_size, 1.0..=20.0));
 
                                 // 操作： 复制，保存，退出
-                                self.purple_icon_button(ui, Tool::Button, ctx, COPY_ICON, "copy").clicked().then(|| {
-                                    let _ = self.copy_to_clipboard();
-                                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                                });
+                                if self.purple_icon_button(ui, Tool::Copy, ctx, COPY_ICON, "copy").clicked() {
+                                    self.show_toolbar = false;
+                                    ctx.request_repaint();
+                                    let sender_clone = self.signal_sender.clone();
+                                    std::thread::spawn(move || {
+                                        // 保存截图逻辑...
+                                        // 保存完成后可能需要再次重绘
+                                        if let(Some(signal_sender)) = sender_clone {
+                                            // 发送信号给主窗口
+                                            std::thread::sleep(std::time::Duration::from_millis(20));
+                                            signal_sender.lock().unwrap().send(AppSignal::Copy).ok();
+                                        }
+                                    });
+                                };
+                                let save_response = self.purple_icon_button(ui, Tool::Save, ctx, SAVE_ICON, "save");
+                                if save_response.clicked() {
+                                    self.show_toolbar = false;
+                                    ctx.request_repaint();
+                                    let sender_clone = self.signal_sender.clone();
+                                    std::thread::spawn(move || {
+                                        // 保存截图逻辑...
+                                        // 保存完成后可能需要再次重绘
+                                        if let(Some(signal_sender)) = sender_clone {
+                                            // 发送信号给主窗口
+                                            std::thread::sleep(std::time::Duration::from_millis(20));
+                                            signal_sender.lock().unwrap().send(AppSignal::Save).ok();
+                                        }
+                                    });
+                                }
 
-                                self.purple_icon_button(ui, Tool::Button, ctx, SAVE_ICON, "save").clicked().then(|| {
-                                    let _ = self.save_screenshot();
-                                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                                });
 
-                                self.purple_icon_button(ui, Tool::Button, ctx, EXIT_ICON, "exit").clicked().then(|| {
+                                self.purple_icon_button(ui, Tool::Exit, ctx, EXIT_ICON, "exit").clicked().then(|| {
                                     ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                                 });
                             });
@@ -152,7 +172,7 @@ impl ScreenshotApp {
         let is_hovered_or_focused = response.hovered() || response.has_focus();
 
         // 设置按钮填充颜色
-        if selected && tool != Tool::Button {
+        if selected && tool != Tool::Copy && tool != Tool::Save && tool != Tool::Exit {
             ui.painter().circle_filled(
                 response.rect.center(),
                 response.rect.width() / 2.0, // 圆角为0
@@ -218,7 +238,7 @@ impl ScreenshotApp {
                 .show(ui.ctx(), |ui| {
                     egui::Frame::NONE
                         .show(ui, |ui| {
-                            ui.style_mut().visuals.text_cursor.stroke.color = self.annotation_color; // 设置为红色光标
+                            ui.style_mut().visuals.text_cursor.stroke.color = self.annotation_color; // 设置为蓝色光标
                             let text_edit = egui::TextEdit::multiline(&mut text_state.text)
                                 .font(egui::FontId::proportional(16.0))
                                 .desired_width(desired_width)
@@ -297,6 +317,7 @@ impl ScreenshotApp {
                 // 绘制箭头
                 if let (Some(&start), Some(&end)) = (annotation.points.first(), annotation.points.last()) {
                     // 1️⃣ 先画箭杆（线，和原来一样）
+                    
                     painter.line_segment([start, end], stroke);
 
                     // 2️⃣ 计算箭头头的三个点（实心三角形！）
@@ -312,8 +333,8 @@ impl ScreenshotApp {
                     // 箭头尺寸（可调，我设了10x5，你按需改）
                     let arrow_length = 15.0;
                     let arrow_width = 8.0;
-
-                    let tip = end; // 箭头尖端
+                    // 将箭头尖端向前延伸，使其不与线条末端重合
+                    let tip = end + dir_norm * 5.0; // 箭头尖端向前延伸5个像素
                     let left = end - dir_norm * arrow_length + perp * arrow_width;
                     let right = end - dir_norm * arrow_length - perp * arrow_width;
 
