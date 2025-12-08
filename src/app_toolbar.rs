@@ -64,12 +64,10 @@ impl ScreenshotApp {
 
                                 // 操作： 复制，保存，退出
                                 if self.purple_icon_button(ui, Tool::Copy, ctx, COPY_ICON, "copy").clicked() {
-                                    if self.selection_rect.unwrap().contains(self.toolbar_position) {
-                                        println!("copy");
+                                    if !self.selection_rect.unwrap().contains(self.toolbar_position) {
                                         let _ = self.copy_to_clipboard();
                                         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                                     } else {
-                                        println!("copy else");
                                         self.show_toolbar = false;
                                         ctx.request_repaint();
                                         let sender_clone = self.signal_sender.clone();
