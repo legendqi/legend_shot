@@ -1,6 +1,6 @@
 use eframe::emath::{Pos2, Rect, Vec2};
 use eframe::epaint::{Color32, Hsva, Shape, Stroke, StrokeKind};
-use egui::{color_picker, text_selection, Button, Id, Popup, PopupCloseBehavior, Response, Ui};
+use egui::{color_picker, text_selection, Button, Id, Popup, PopupCloseBehavior, Response, Ui, ViewportId};
 use egui::color_picker::color_picker_hsva_2d;
 use crate::app_default::{Annotation, AppSignal, ScreenshotApp, Tool};
 use crate::ui::{load_texture_from_png, ARROW_ICON, COPY_ICON, EXIT_ICON, MOSAIC_ICON, MOVE_ICON, NUMBER_ICON, PEN_ICON, RECTANGLE_ICON, SAVE_ICON, WORD_ICON};
@@ -39,8 +39,8 @@ impl ScreenshotApp {
             }
             
             self.toolbar_position = toolbar_pos;
-
-            egui::Area::new(Id::from("annotation_toolbar".to_string()))
+            let toolbar_id = Id::new("annotation_toolbar");
+            egui::Area::new(toolbar_id)
                 .fixed_pos(toolbar_pos)
                 .order(egui::Order::Foreground)
                 .interactable(true)
@@ -69,7 +69,7 @@ impl ScreenshotApp {
                                         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                                     } else {
                                         self.show_toolbar = false;
-                                        ctx.request_repaint();
+                                        ctx.request_repaint_of(ViewportId(toolbar_id));
                                         let sender_clone = self.signal_sender.clone();
                                         std::thread::spawn(move || {
                                             // 保存截图逻辑...

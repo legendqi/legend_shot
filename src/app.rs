@@ -38,7 +38,6 @@ impl App for ScreenshotApp {
                 if let Some(action) = pending_action.take() {
                     match action {
                         AppSignal::Save => {
-                            std::thread::sleep(std::time::Duration::from_millis(10));
                             // 执行复制逻辑
                             let _ = self.save_screenshot();
                             ctx.send_viewport_cmd(egui::ViewportCommand::Close);

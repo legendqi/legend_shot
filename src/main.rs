@@ -1,6 +1,5 @@
 use crate::app_default::ScreenshotApp;
 
-mod screenshot;
 mod ui;
 mod app_default;
 mod app_draw;
