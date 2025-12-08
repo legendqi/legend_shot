@@ -64,33 +64,47 @@ impl ScreenshotApp {
 
                                 // 操作： 复制，保存，退出
                                 if self.purple_icon_button(ui, Tool::Copy, ctx, COPY_ICON, "copy").clicked() {
-                                    self.show_toolbar = false;
-                                    ctx.request_repaint();
-                                    let sender_clone = self.signal_sender.clone();
-                                    std::thread::spawn(move || {
-                                        // 保存截图逻辑...
-                                        // 保存完成后可能需要再次重绘
-                                        if let(Some(signal_sender)) = sender_clone {
-                                            // 发送信号给主窗口
-                                            std::thread::sleep(std::time::Duration::from_millis(20));
-                                            signal_sender.lock().unwrap().send(AppSignal::Copy).ok();
-                                        }
-                                    });
+                                    if self.selection_rect.unwrap().contains(self.toolbar_position) {
+                                        println!("copy");
+                                        let _ = self.copy_to_clipboard();
+                                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                                    } else {
+                                        println!("copy else");
+                                        self.show_toolbar = false;
+                                        ctx.request_repaint();
+                                        let sender_clone = self.signal_sender.clone();
+                                        std::thread::spawn(move || {
+                                            // 保存截图逻辑...
+                                            // 保存完成后可能需要再次重绘
+                                            if let(Some(signal_sender)) = sender_clone {
+                                                // 发送信号给主窗口
+                                                std::thread::sleep(std::time::Duration::from_millis(20));
+                                                signal_sender.lock().unwrap().send(AppSignal::Copy).ok();
+                                            }
+                                        });
+                                    }
+
                                 };
                                 let save_response = self.purple_icon_button(ui, Tool::Save, ctx, SAVE_ICON, "save");
                                 if save_response.clicked() {
-                                    self.show_toolbar = false;
-                                    ctx.request_repaint();
-                                    let sender_clone = self.signal_sender.clone();
-                                    std::thread::spawn(move || {
-                                        // 保存截图逻辑...
-                                        // 保存完成后可能需要再次重绘
-                                        if let(Some(signal_sender)) = sender_clone {
-                                            // 发送信号给主窗口
-                                            std::thread::sleep(std::time::Duration::from_millis(20));
-                                            signal_sender.lock().unwrap().send(AppSignal::Save).ok();
-                                        }
-                                    });
+                                    if self.selection_rect.unwrap().contains(self.toolbar_position) {
+                                        self.show_toolbar = false;
+                                        ctx.request_repaint();
+                                        let sender_clone = self.signal_sender.clone();
+                                        std::thread::spawn(move || {
+                                            // 保存截图逻辑...
+                                            // 保存完成后可能需要再次重绘
+                                            if let(Some(signal_sender)) = sender_clone {
+                                                // 发送信号给主窗口
+                                                std::thread::sleep(std::time::Duration::from_millis(20));
+                                                signal_sender.lock().unwrap().send(AppSignal::Save).ok();
+                                            }
+                                        });
+                                    } else {
+                                        let _ = self.save_screenshot();
+                                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                                    }
+
                                 }
 
 
