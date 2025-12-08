@@ -3,6 +3,7 @@ use eframe::epaint::textures::TextureOptions;
 use egui::{Color32, Vec2};
 use image::{ImageBuffer, Rgba};
 use xcap::Monitor;
+use crate::app_default::MAX_TEXTURE_SIZE;
 
 pub const ARROW_ICON: &[u8] = include_bytes!("icon/arrow.png");
 pub const COPY_ICON : &[u8] = include_bytes!("icon/copy.png");
@@ -20,6 +21,26 @@ pub fn get_screen_rect(screen: &Monitor) -> Rect {
         Pos2::new(screen.x().unwrap() as f32, screen.y().unwrap() as f32),
         Vec2::new(screen.width().unwrap() as f32, screen.height().unwrap() as f32),
     )
+}
+
+pub fn get_compress_image(width: u32, height: u32, image: ImageBuffer<Rgba<u8>, Vec<u8>>) -> ImageBuffer<Rgba<u8>, Vec<u8>> {
+    let new_width;
+    let new_height;
+    let max_size = MAX_TEXTURE_SIZE as u32;
+    if width > max_size || height > max_size {
+        if width > height {
+            new_width = max_size;
+            new_height = (height as f32 * max_size as f32 / width as f32) as u32;
+        } else {
+            new_height = max_size;
+            new_width = (width as f32 * max_size as f32 / height as f32) as u32;
+        }
+    } else {
+        new_width = width;
+        new_height = height;
+    }
+    let resized_img = image::imageops::resize(&image, new_width, new_height, image::imageops::FilterType::Lanczos3);
+    resized_img
 }
 
 

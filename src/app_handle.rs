@@ -3,14 +3,18 @@ use device_query::MousePosition;
 use eframe::emath::{Pos2, Rect};
 use egui::{Color32};
 use image::{ImageBuffer, Rgba};
-use crate::app_default::{Annotation, MouseSelectionRect, ScreenshotApp, Tool};
-use crate::ui::{draw_simple_char, get_screen_rect};
+use crate::app_default::{Annotation, MouseSelectionRect, ScreenshotApp, Tool, MAX_TEXTURE_SIZE};
+use crate::ui::{draw_simple_char, get_compress_image, get_screen_rect};
 
 impl ScreenshotApp {
 
     pub fn xcap_capture_region(&mut self) -> Result<ImageBuffer<Rgba<u8>, Vec<u8>>, String> {
-        let windows = xcap::Window::all().unwrap();
-        let window_image = windows[0].capture_image().map_err(|e| e.to_string())?;
+        let monitors = xcap::Monitor::all().unwrap();
+        let mut window_image = monitors[0].capture_image().map_err(|e| e.to_string())?;
+        let (width, height) = window_image.dimensions();
+        if width > MAX_TEXTURE_SIZE as u32 || height > MAX_TEXTURE_SIZE as u32 {
+            window_image = get_compress_image(width, height, window_image);;
+        }
         let x = ((self.mouse_start.0.min(self.mouse_end.0) as f32) * self.image_scale) as i32;
         let y = ((self.mouse_start.1.min(self.mouse_end.1) as f32) * self.image_scale) as i32;
         let width = ((self.mouse_end.0 - self.mouse_start.0).abs() as f32 * self.image_scale) as i32;

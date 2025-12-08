@@ -6,6 +6,7 @@ use eframe::epaint::{Color32, ColorImage};
 use egui::Id;
 use image::{ImageBuffer, Rgba};
 use xcap::Monitor;
+use crate::ui::get_compress_image;
 
 #[derive(Debug, Clone, Copy)]
 pub enum AppSignal {
@@ -186,22 +187,7 @@ impl ScreenshotApp {
                 self.screenshots.push(image.clone());
             } else {
                 // 超过纹理，使用图片压缩方案
-                let new_width;
-                let new_height;
-                let max_size = MAX_TEXTURE_SIZE as u32;
-                if width > max_size || height > max_size {
-                    if width > height {
-                        new_width = max_size;
-                        new_height = (height as f32 * max_size as f32 / width as f32) as u32;
-                    } else {
-                        new_height = max_size;
-                        new_width = (width as f32 * max_size as f32 / height as f32) as u32;
-                    }
-                } else {
-                    new_width = width;
-                    new_height = height;
-                }
-                let resized_img = image::imageops::resize(&image, new_width, new_height, image::imageops::FilterType::Lanczos3);
+                let resized_img = get_compress_image(width, height, image);
                 self.screenshots_positions.push((0, 0, resized_img.clone()));
                 self.screenshots.push(resized_img.clone());
 
