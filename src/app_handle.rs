@@ -1,8 +1,10 @@
+use std::env::temp_dir;
+use std::io::Write;
 use arboard::Clipboard;
 use device_query::MousePosition;
 use eframe::emath::{Pos2, Rect};
 use egui::{Color32};
-use image::{ImageBuffer, Rgba};
+use image::{EncodableLayout, ImageBuffer, Rgba};
 use crate::app_default::{Annotation, MouseSelectionRect, ScreenshotApp, Tool, MAX_TEXTURE_SIZE};
 use crate::ui::{draw_simple_char, get_compress_image, get_screen_rect};
 
@@ -92,6 +94,14 @@ impl ScreenshotApp {
             annotations.push(new_annotation);
         }
         let result_image = self.xcap_capture_region().map_err(|e| e.to_string())?;
+        let temp_dir_path = temp_dir();
+        let now = chrono::Local::now();
+        let filename = now.format("screenshot_%Y-%m-%d_%H-%M-%S.png").to_string();
+        let temp_file_path = temp_dir_path.join(filename);
+        result_image.save(temp_file_path.clone()).map_err(|e| e.to_string())?;
+        let temp_file_path_str = temp_file_path.to_str().unwrap().to_string();
+        std::io::stdout().write_all(temp_file_path_str.into_bytes().as_bytes()).unwrap();
+        std::io::stdout().flush().unwrap();  // 确保立即输出
         self.set_to_clipboard(result_image).map_err(|e| e.to_string())?;
         // if let Some(cropped_image) = self.crop_selection(self.selection_rect.unwrap(), &annotations) {
         //     // 转换为剪贴板格式
