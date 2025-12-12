@@ -1,3 +1,4 @@
+use std::io::Write;
 use eframe::emath::{Pos2, Rect, Vec2};
 use eframe::epaint::{Color32, Hsva, Shape, Stroke, StrokeKind};
 use egui::{color_picker, text_selection, Button, Id, Popup, PopupCloseBehavior, Response, Ui, ViewportId};
@@ -108,6 +109,8 @@ impl ScreenshotApp {
 
                                 self.purple_icon_button(ui, Tool::Exit, ctx, EXIT_ICON, "exit").clicked().then(|| {
                                     ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                                    std::io::stdout().write_all("cancel".as_bytes()).unwrap();
+                                    std::io::stdout().flush().unwrap();
                                 });
                             });
                         });

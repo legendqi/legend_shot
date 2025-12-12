@@ -80,6 +80,8 @@ impl ScreenshotApp {
         // self.handle_file_dialog(result_image)?;
         if let Some(cropped_image) = self.crop_selection(self.selection_rect.unwrap(), &self.annotations) {
             self.handle_file_dialog(cropped_image)?;
+            std::io::stdout().write_all("save".as_bytes()).unwrap();
+            std::io::stdout().flush().unwrap();
         }
         Ok(())
     }
