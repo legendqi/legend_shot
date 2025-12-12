@@ -53,9 +53,10 @@ impl ScreenshotApp {
             // 执行实际保存操作
             if let Err(_e) = image.save_with_format(&path, format) {
                 return Err("保存失败".to_string());
-            } else {
-                println!("截图已成功保存至: {:?}", path.as_path());
             }
+            // else {
+            //     println!("截图已成功保存至: {:?}", path.as_path());
+            // }
         }
         Ok(())
     }
