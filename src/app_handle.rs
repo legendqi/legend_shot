@@ -75,11 +75,11 @@ impl ScreenshotApp {
         if self.selection_rect.is_none() {
             return Err("请选择要保存的图片".to_string());
         }
-        let result_image = self.xcap_capture_region().map_err(|e| e.to_string())?;
-        self.handle_file_dialog(result_image)?;
-        // if let Some(cropped_image) = self.crop_selection(self.selection_rect.unwrap(), &self.annotations) {
-        //     self.handle_file_dialog(cropped_image)?;
-        // }
+        // let result_image = self.xcap_capture_region().map_err(|e| e.to_string())?;
+        // self.handle_file_dialog(result_image)?;
+        if let Some(cropped_image) = self.crop_selection(self.selection_rect.unwrap(), &self.annotations) {
+            self.handle_file_dialog(cropped_image)?;
+        }
         Ok(())
     }
 
@@ -93,20 +93,28 @@ impl ScreenshotApp {
             new_annotation.text = text_state.text.clone();
             annotations.push(new_annotation);
         }
-        let result_image = self.xcap_capture_region().map_err(|e| e.to_string())?;
-        let temp_dir_path = temp_dir();
-        let now = chrono::Local::now();
-        let filename = now.format("screenshot_%Y-%m-%d_%H-%M-%S.png").to_string();
-        let temp_file_path = temp_dir_path.join(filename);
-        result_image.save(temp_file_path.clone()).map_err(|e| e.to_string())?;
-        let temp_file_path_str = temp_file_path.to_str().unwrap().to_string();
-        std::io::stdout().write_all(temp_file_path_str.into_bytes().as_bytes()).unwrap();
-        std::io::stdout().flush().unwrap();  // 确保立即输出
-        self.set_to_clipboard(result_image).map_err(|e| e.to_string())?;
-        // if let Some(cropped_image) = self.crop_selection(self.selection_rect.unwrap(), &annotations) {
-        //     // 转换为剪贴板格式
-        //     self.set_to_clipboard(cropped_image).map_err(|e| e.to_string())?;
-        // }
+        // let result_image = self.xcap_capture_region().map_err(|e| e.to_string())?;
+        // let temp_dir_path = temp_dir();
+        // let now = chrono::Local::now();
+        // let filename = now.format("screenshot_%Y-%m-%d_%H-%M-%S.png").to_string();
+        // let temp_file_path = temp_dir_path.join(filename);
+        // result_image.save(temp_file_path.clone()).map_err(|e| e.to_string())?;
+        // let temp_file_path_str = temp_file_path.to_str().unwrap().to_string();
+        // std::io::stdout().write_all(temp_file_path_str.into_bytes().as_bytes()).unwrap();
+        // std::io::stdout().flush().unwrap();  // 确保立即输出
+        // self.set_to_clipboard(result_image).map_err(|e| e.to_string())?;
+        if let Some(cropped_image) = self.crop_selection(self.selection_rect.unwrap(), &annotations) {
+            // 转换为剪贴板格式
+            let temp_dir_path = temp_dir();
+            let now = chrono::Local::now();
+            let filename = now.format("screenshot_%Y-%m-%d_%H-%M-%S.png").to_string();
+            let temp_file_path = temp_dir_path.join(filename);
+            cropped_image.save(temp_file_path.clone()).map_err(|e| e.to_string())?;
+            let temp_file_path_str = temp_file_path.to_str().unwrap().to_string();
+            std::io::stdout().write_all(temp_file_path_str.into_bytes().as_bytes()).unwrap();
+            std::io::stdout().flush().unwrap();  // 确保立即输出
+            self.set_to_clipboard(cropped_image).map_err(|e| e.to_string())?;
+        }
         Ok(())
     }
 
