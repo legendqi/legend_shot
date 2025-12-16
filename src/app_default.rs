@@ -175,34 +175,38 @@ impl ScreenshotApp {
 
     pub fn capture_screens(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         self.screens = Monitor::all()?;
+        self.screen_width = self.screens[0].width()? as i32;
+        self.screen_height = self.screens[0].height()? as i32;
         self.screenshots.clear();
         for screen in &self.screens {
             self.screen_scale = screen.scale_factor().unwrap();
             let image = screen.capture_image()?;
-            let (width, height) = image.dimensions();
-            self.screen_width = width as i32;
-            self.screen_height = height as i32;
-            if width <= MAX_TEXTURE_SIZE as u32 && height <= MAX_TEXTURE_SIZE as u32 {
-                self.screenshots_positions.push((0, 0, image.clone()));
-                self.screenshots.push(image.clone());
-            } else {
-                // 超过纹理，使用图片压缩方案
-                let resized_img = get_compress_image(width, height, image);
-                self.screenshots_positions.push((0, 0, resized_img.clone()));
-                self.screenshots.push(resized_img.clone());
-
-                // 分块纹理，处理，暂时注释，使用图片压缩方案
-                // for y in (0..height).step_by(MAX_TEXTURE_SIZE) {
-                //     for x in (0..width).step_by(MAX_TEXTURE_SIZE) {
-                //         let tile_width = (width - x).min(MAX_TEXTURE_SIZE as u32);
-                //         let tile_height = (height - y).min(MAX_TEXTURE_SIZE as u32);
-                //         let tile = image.view(x, y, tile_width, tile_height).to_image();
-                //         self.screenshots_positions.push((x as usize, y as usize, tile.clone()));
-                //         self.screenshots.push(tile);
-                //     }
-                // }
-            }
+            self.screenshots.push(image);
         }
+        //     let (width, height) = image.dimensions();
+        //     self.screen_width = width as i32;
+        //     self.screen_height = height as i32;
+        //     if width <= MAX_TEXTURE_SIZE as u32 && height <= MAX_TEXTURE_SIZE as u32 {
+        //         self.screenshots_positions.push((0, 0, image.clone()));
+        //         self.screenshots.push(image.clone());
+        //     } else {
+        //         // 超过纹理，使用图片压缩方案
+        //         let resized_img = get_compress_image(width, height, image);
+        //         self.screenshots_positions.push((0, 0, resized_img.clone()));
+        //         self.screenshots.push(resized_img.clone());
+        //
+        //         // 分块纹理，处理，暂时注释，使用图片压缩方案
+        //         // for y in (0..height).step_by(MAX_TEXTURE_SIZE) {
+        //         //     for x in (0..width).step_by(MAX_TEXTURE_SIZE) {
+        //         //         let tile_width = (width - x).min(MAX_TEXTURE_SIZE as u32);
+        //         //         let tile_height = (height - y).min(MAX_TEXTURE_SIZE as u32);
+        //         //         let tile = image.view(x, y, tile_width, tile_height).to_image();
+        //         //         self.screenshots_positions.push((x as usize, y as usize, tile.clone()));
+        //         //         self.screenshots.push(tile);
+        //         //     }
+        //         // }
+        //     }
+        // }
         Ok(())
     }
 

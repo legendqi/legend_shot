@@ -386,7 +386,12 @@ impl ScreenshotApp {
             Tool::Mosaic => {
                 // 绘制马赛克效果
                 if let (Some(&start), Some(&end)) = (annotation.points.first(), annotation.points.last()) {
+                    let mouse_first =  annotation.mouse_points.first().unwrap();
+                    let mouse_last =  annotation.mouse_points.last().unwrap();
+                    let start_pos = Pos2::new(mouse_first.0 as f32, mouse_first.1 as f32);
+                    let end_pos = Pos2::new(mouse_last.0 as f32, mouse_last.1 as f32);
                     let rect = Rect::from_two_pos(start, end);
+                    let mouse_rect = Rect::from_two_pos(start_pos, end_pos);
 
                     // 马赛克块大小（可调整）
                     let block_size = 4.0;
@@ -396,7 +401,6 @@ impl ScreenshotApp {
                     let height = rect.height();
                     let cols = (width / block_size).ceil() as usize;
                     let rows = (height / block_size).ceil() as usize;
-
                     // 绘制马赛克网格
                     for row in 0..rows {
                         for col in 0..cols {
@@ -407,9 +411,17 @@ impl ScreenshotApp {
                                 ),
                                 Vec2::new(block_size, block_size)
                             );
-                            let pixel = self.screenshots[0].get_pixel(block_rect.min.x as u32, block_rect.min.y as u32);
+                            let mouse_block_rect = Rect::from_min_size(
+                                Pos2::new(
+                                    mouse_rect.min.x + col as f32 * block_size,
+                                    mouse_rect.min.y + row as f32 * block_size
+                                ),
+                                Vec2::new(block_size, block_size)
+                            );
+                            let pixel = self.screenshots[0].get_pixel(mouse_block_rect.min.x as u32, mouse_block_rect.min.y as u32);
                             let current_color = Color32::from_rgb(pixel[0], pixel[1], pixel[2]);
                             painter.rect_filled(block_rect, egui::CornerRadius::ZERO, current_color);
+                            //painter.rect_filled(block_rect, egui::CornerRadius::ZERO, Color32::from_rgba_premultiplied(25, 0, 55, 200));
                         }
                     }
 

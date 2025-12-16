@@ -15,7 +15,7 @@ impl ScreenshotApp {
         let mut window_image = monitors[0].capture_image().map_err(|e| e.to_string())?;
         let (width, height) = window_image.dimensions();
         if width > MAX_TEXTURE_SIZE as u32 || height > MAX_TEXTURE_SIZE as u32 {
-            window_image = get_compress_image(width, height, window_image);;
+            window_image = get_compress_image(width, height, window_image);
         }
         let x = ((self.mouse_start.0.min(self.mouse_end.0) as f32) * self.image_scale) as i32;
         let y = ((self.mouse_start.1.min(self.mouse_end.1) as f32) * self.image_scale) as i32;

@@ -1,3 +1,4 @@
+use egui::Color32;
 use crate::app_default::ScreenshotApp;
 
 mod ui;
@@ -8,8 +9,6 @@ mod app_handle;
 mod app;
 
 fn main() -> eframe::Result<()> {
-    let mut app: ScreenshotApp = ScreenshotApp::default();
-    let _ = app.capture_screens();
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_fullscreen(true)
@@ -28,7 +27,7 @@ fn main() -> eframe::Result<()> {
         "",
         options,
         Box::new(|_cc| {
-            Ok(Box::new(app))
+            Ok(Box::new(ScreenshotApp::default()))
         }),
     )?;
 
