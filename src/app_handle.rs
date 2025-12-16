@@ -11,8 +11,7 @@ use crate::ui::{draw_simple_char, get_screen_rect};
 impl ScreenshotApp {
 
     pub fn xcap_capture_region(&mut self) -> Result<ImageBuffer<Rgba<u8>, Vec<u8>>, String> {
-        let monitors = xcap::Monitor::all().unwrap();
-        let mut window_image = monitors[0].capture_image().map_err(|e| e.to_string())?;
+        let window_image = self.screens[0].capture_image().map_err(|e| e.to_string())?;
         let (image_width, image_height) = window_image.dimensions();
         let (x, y, width, height);
         if image_width > MAX_TEXTURE_SIZE as u32 || image_height > MAX_TEXTURE_SIZE as u32 {
@@ -28,11 +27,12 @@ impl ScreenshotApp {
         }
         let mut cropped_image: ImageBuffer<Rgba<u8>, Vec<u8>> = ImageBuffer::new(width as u32, height as u32);
         // 复制原始截图内容
-        for src_y in y..(y + height) {
-            for src_x in x..(x + width) {
+        for mut src_y in y..(y + height) {
+            for mut src_x in x..(x + width) {
                 let dst_x = src_x - x;
                 let dst_y = src_y - y;
-
+                src_x = src_x.min(image_width as i32 - 1);
+                src_y = src_y.min(image_height as i32 - 1);
                 let pixel = window_image.get_pixel(src_x as u32, src_y as u32);
                 cropped_image.put_pixel(dst_x.try_into().unwrap(), dst_y.try_into().unwrap(), pixel.clone());
             }
