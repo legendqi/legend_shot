@@ -4,12 +4,18 @@ use crate::app_default::{AppSignal, ScreenshotApp};
 
 impl App for ScreenshotApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-
+        // 首次运行截图
+        if self.screenshots.is_empty() {
+            self.capture_screens().expect("panic");
+        }
         // 主界面
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE)
             .show(ctx, |ui| {
-            // self.draw_screens(ui);
+            #[cfg(not(target_os = "macos"))]
+            {
+                self.draw_screens(ui);
+            }
             self.draw_overlay(ui);        // 覆盖层和选择框
             self.draw_annotations(ui);    // 标注在覆盖层之上
             self.handle_input(ui, ctx);   // 输入处理，包括更新选择框和标注
@@ -47,10 +53,7 @@ impl App for ScreenshotApp {
                 }
             }
         });
-        // 首次运行截图
-        if self.screenshots.is_empty() {
-            self.capture_screens().expect("panic");
-        }
+
         self.window_rect = ctx.viewport_rect();
     }
 

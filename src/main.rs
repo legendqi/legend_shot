@@ -9,6 +9,11 @@ mod app_handle;
 mod app;
 
 fn main() -> eframe::Result<()> {
+    let mut app: ScreenshotApp = ScreenshotApp::default();
+    #[cfg(target_os = "macos")]
+    {
+        let _ = app.capture_screens();
+    }
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_fullscreen(true)
@@ -27,7 +32,7 @@ fn main() -> eframe::Result<()> {
         "",
         options,
         Box::new(|_cc| {
-            Ok(Box::new(ScreenshotApp::default()))
+            Ok(Box::new(app))
         }),
     )?;
 
