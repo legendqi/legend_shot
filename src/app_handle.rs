@@ -6,22 +6,26 @@ use eframe::emath::{Pos2, Rect};
 use egui::{Color32};
 use image::{EncodableLayout, ImageBuffer, Rgba};
 use crate::app_default::{Annotation, MouseSelectionRect, ScreenshotApp, Tool, MAX_TEXTURE_SIZE};
-use crate::ui::{draw_simple_char, get_compress_image, get_screen_rect};
+use crate::ui::{draw_simple_char, get_screen_rect};
 
 impl ScreenshotApp {
 
     pub fn xcap_capture_region(&mut self) -> Result<ImageBuffer<Rgba<u8>, Vec<u8>>, String> {
         let monitors = xcap::Monitor::all().unwrap();
         let mut window_image = monitors[0].capture_image().map_err(|e| e.to_string())?;
-        let (width, height) = window_image.dimensions();
-        if width > MAX_TEXTURE_SIZE as u32 || height > MAX_TEXTURE_SIZE as u32 {
-            window_image = get_compress_image(width, height, window_image);
+        let (image_width, image_height) = window_image.dimensions();
+        let (x, y, width, height);
+        if image_width > MAX_TEXTURE_SIZE as u32 || image_height > MAX_TEXTURE_SIZE as u32 {
+            x = ((self.mouse_start.0.min(self.mouse_end.0) as f32) * self.screen_scale) as i32;
+            y = ((self.mouse_start.1.min(self.mouse_end.1) as f32) * self.screen_scale) as i32;
+            width = ((self.mouse_end.0 - self.mouse_start.0).abs() as f32 * self.screen_scale) as i32;
+            height = ((self.mouse_end.1 - self.mouse_start.1).abs() as f32 * self.screen_scale) as i32;
+        } else {
+            x = ((self.mouse_start.0.min(self.mouse_end.0) as f32) * self.image_scale) as i32;
+            y = ((self.mouse_start.1.min(self.mouse_end.1) as f32) * self.image_scale) as i32;
+            width = ((self.mouse_end.0 - self.mouse_start.0).abs() as f32 * self.image_scale) as i32;
+            height = ((self.mouse_end.1 - self.mouse_start.1).abs() as f32 * self.image_scale) as i32;
         }
-        let x = ((self.mouse_start.0.min(self.mouse_end.0) as f32) * self.image_scale) as i32;
-        let y = ((self.mouse_start.1.min(self.mouse_end.1) as f32) * self.image_scale) as i32;
-        let width = ((self.mouse_end.0 - self.mouse_start.0).abs() as f32 * self.image_scale) as i32;
-        let height = ((self.mouse_end.1 - self.mouse_start.1).abs() as f32 * self.image_scale) as i32;
-
         let mut cropped_image: ImageBuffer<Rgba<u8>, Vec<u8>> = ImageBuffer::new(width as u32, height as u32);
         // 复制原始截图内容
         for src_y in y..(y + height) {
@@ -76,16 +80,10 @@ impl ScreenshotApp {
         if self.selection_rect.is_none() {
             return Err("请选择要保存的图片".to_string());
         }
-        if self.annotations.is_empty() {
-            if let Some(cropped_image) = self.crop_selection(self.selection_rect.unwrap(), &self.annotations) {
-            self.handle_file_dialog(cropped_image)?;
-            std::io::stdout().write_all("save".as_bytes()).unwrap();
-            std::io::stdout().flush().unwrap();
-            }
-        } else {
-            let result_image = self.xcap_capture_region().map_err(|e| e.to_string())?;
-            self.handle_file_dialog(result_image)?;
-        }
+        let result_image = self.xcap_capture_region().map_err(|e| e.to_string())?;
+        self.handle_file_dialog(result_image)?;
+        std::io::stdout().write_all("save".as_bytes()).unwrap();
+        std::io::stdout().flush().unwrap();
         
         Ok(())
     }
@@ -100,33 +98,16 @@ impl ScreenshotApp {
             new_annotation.text = text_state.text.clone();
             annotations.push(new_annotation);
         }
-        if annotations.is_empty() {
-            if let Some(cropped_image) = self.crop_selection(self.selection_rect.unwrap(), &annotations) {
-            // 转换为剪贴板格式
-            let temp_dir_path = temp_dir();
-            let now = chrono::Local::now();
-            let filename = now.format("screenshot_%Y-%m-%d_%H-%M-%S.png").to_string();
-            let temp_file_path = temp_dir_path.join(filename);
-            cropped_image.save(temp_file_path.clone()).map_err(|e| e.to_string())?;
-            let temp_file_path_str = temp_file_path.to_str().unwrap().to_string();
-            std::io::stdout().write_all(temp_file_path_str.into_bytes().as_bytes()).unwrap();
-            std::io::stdout().flush().unwrap();  // 确保立即输出
-            self.set_to_clipboard(cropped_image).map_err(|e| e.to_string())?;
-        }
-        } else {
-            let result_image = self.xcap_capture_region().map_err(|e| e.to_string())?;
-            let temp_dir_path = temp_dir();
-            let now = chrono::Local::now();
-            let filename = now.format("screenshot_%Y-%m-%d_%H-%M-%S.png").to_string();
-            let temp_file_path = temp_dir_path.join(filename);
-            result_image.save(temp_file_path.clone()).map_err(|e| e.to_string())?;
-            let temp_file_path_str = temp_file_path.to_str().unwrap().to_string();
-            std::io::stdout().write_all(temp_file_path_str.into_bytes().as_bytes()).unwrap();
-            std::io::stdout().flush().unwrap();  // 确保立即输出
-            self.set_to_clipboard(result_image).map_err(|e| e.to_string())?;
-        }
-        
-        
+        let result_image = self.xcap_capture_region().map_err(|e| e.to_string())?;
+        let temp_dir_path = temp_dir();
+        let now = chrono::Local::now();
+        let filename = now.format("screenshot_%Y-%m-%d_%H-%M-%S.png").to_string();
+        let temp_file_path = temp_dir_path.join(filename);
+        result_image.save(temp_file_path.clone()).map_err(|e| e.to_string())?;
+        let temp_file_path_str = temp_file_path.to_str().unwrap().to_string();
+        std::io::stdout().write_all(temp_file_path_str.into_bytes().as_bytes()).unwrap();
+        std::io::stdout().flush().unwrap();  // 确保立即输出
+        self.set_to_clipboard(result_image).map_err(|e| e.to_string())?;
         Ok(())
     }
 
