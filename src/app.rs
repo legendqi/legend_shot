@@ -12,7 +12,7 @@ impl App for ScreenshotApp {
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE)
             .show(ctx, |ui| {
-            #[cfg(not(target_os = "macos"))]
+            #[cfg(target_os = "macos")]
             {
                 self.draw_screens(ui);
             }
