@@ -5,8 +5,11 @@ use crate::app_default::{AppSignal, ScreenshotApp};
 impl App for ScreenshotApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // 首次运行截图
-        if self.screenshots.is_empty() {
-            self.capture_screens().expect("panic");
+        #[cfg(target_os = "macos")]
+        {
+            if self.display_textures_split.is_empty() {
+                self.screen_to_texture(ctx);
+            }
         }
         // 主界面
         egui::CentralPanel::default()
@@ -53,7 +56,13 @@ impl App for ScreenshotApp {
                 }
             }
         });
-
+        #[cfg(any(target_os = "windows", target_os = "linux"))]
+        {
+            // 首次运行截图
+            if self.screenshots.is_empty() {
+                self.capture_screens().expect("panic");
+            }
+        }
         self.window_rect = ctx.viewport_rect();
     }
 
