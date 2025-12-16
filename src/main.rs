@@ -8,7 +8,7 @@ mod app_handle;
 mod app;
 
 fn main() -> eframe::Result<()> {
-    let mut app = ScreenshotApp::default();
+    let mut app: ScreenshotApp = ScreenshotApp::default();
     let _ = app.capture_screens();
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
@@ -19,7 +19,7 @@ fn main() -> eframe::Result<()> {
             .with_maximize_button(false)
             .with_minimize_button(false)
             .with_close_button(false)
-            .with_max_inner_size(egui::vec2(4096., 4096.))
+            .with_visible(false)
             .with_transparent(true),
         ..Default::default()
     };
