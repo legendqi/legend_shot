@@ -5,6 +5,10 @@ use crate::app_default::{AppSignal, ScreenshotApp};
 impl App for ScreenshotApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // 首次运行截图
+        if self.is_first {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(true));
+            self.is_first = false;
+        }
         #[cfg(target_os = "macos")]
         {
             if self.display_textures_split.is_empty() {

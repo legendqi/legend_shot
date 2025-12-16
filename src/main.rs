@@ -16,7 +16,7 @@ fn main() -> eframe::Result<()> {
     }
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_fullscreen(true)
+            .with_fullsize_content_view(true)
             // .with_maximized(true) // windows下会导致下方任务栏显示白条
             .with_decorations(false)
             // .with_always_on_top() // windows下会导致文件保存对话框无法弹出

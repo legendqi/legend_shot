@@ -21,6 +21,23 @@ Legend_Shot 是一个截图工具，它允许用户捕获屏幕、进行注释�
 - `./build.sh build_macos_intel`：为 macOS Intel 构建。
 - `./build.sh build_all`：为所有平台构建。
 
+## 功能说明
+- app_draw.rs 是监控鼠标和键盘的输入，同时绘制相关内容
+- app_main.rs 是主函数，启动程序
+- app_utils.rs 是一些工具函数
+- app_handle.rs 是处理截图结果处理，包括复制到系统剪切板和保存本地
+- app_toolbar.rs 是标注工具定义，可根据需要注释相关代码
+  ```rust
+    self.purple_icon_button(ui, Tool::MoveBox, ctx, MOVE_ICON, "move");
+    self.purple_icon_button(ui, Tool::Pen, ctx, PEN_ICON, "pen");
+    self.purple_icon_button(ui, Tool::Rectangle, ctx, RECTANGLE_ICON, "rectangle");
+    self.purple_icon_button(ui, Tool::Arrow, ctx, ARROW_ICON, "arrow");
+    self.purple_icon_button(ui, Tool::Text, ctx, WORD_ICON, "word");
+    self.purple_icon_button(ui, Tool::Mosaic, ctx, MOSAIC_ICON, "mosaic");
+    self.purple_icon_button(ui, Tool::Number, ctx, NUMBER_ICON, "number");
+```
+
+
 ## 使用方法
 
 启动应用后，您可以使用提供的工具进行截图和注释。使用工具栏中的按钮来选择不同的注释工具，添加文本，或者保存和复制截图。

@@ -77,6 +77,7 @@ pub struct MouseSelectionRect {
 
 
 pub struct ScreenshotApp {
+    pub is_first: bool,
     pub screens: Vec<Monitor>,
     pub screenshots: Vec<ImageBuffer<Rgba<u8>, Vec<u8>>>,
     pub screenshots_positions: Vec<(usize, usize, ImageBuffer<Rgba<u8>, Vec<u8>>)>,
@@ -130,6 +131,7 @@ impl Default for ScreenshotApp {
     fn default() -> Self {
         let (sender, receiver) = mpsc::channel();
         Self {
+            is_first: true,
             screens: Vec::new(),
             screenshots: Vec::new(),
             screenshots_positions: Vec::new(),
