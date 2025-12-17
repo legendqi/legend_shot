@@ -27,7 +27,7 @@ Legend_Shot 是一个截图工具，它允许用户捕获屏幕、进行注释�
 - app_utils.rs 是一些工具函数
 - app_handle.rs 是处理截图结果处理，包括复制到系统剪切板和保存本地
 - app_toolbar.rs 是标注工具定义，可根据需要注释相关代码
-  ```rust
+```rust
     self.purple_icon_button(ui, Tool::MoveBox, ctx, MOVE_ICON, "move");
     self.purple_icon_button(ui, Tool::Pen, ctx, PEN_ICON, "pen");
     self.purple_icon_button(ui, Tool::Rectangle, ctx, RECTANGLE_ICON, "rectangle");
