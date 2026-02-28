@@ -128,6 +128,8 @@ impl ScreenshotApp {
     pub(crate) fn handle_input(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         let pointer_pos = ui.input(|i| i.pointer.interact_pos()).unwrap_or(Pos2::ZERO);
         let mouse_pos = self.device_state.get_mouse().coords;
+        let current_time = ui.input(|i| i.time);
+
         // 如果有活动的文本输入，优先处理文本输入
         if let Some(text_state) = &mut self.text_input && text_state.is_active {
             // 文本输入激活时，不处理其他工具
@@ -141,6 +143,27 @@ impl ScreenshotApp {
 
         // 鼠标按下开始选择
         if ui.input(|i| i.pointer.primary_pressed()) {
+            // 双击检测：如果点击在选择区域内，执行复制操作
+            if let Some(selection_rect) = self.selection_rect {
+                if selection_rect.contains(pointer_pos) && !self.tool_bar_focused {
+                    let time_delta = current_time - self.last_click_time;
+                    let pos_delta = (pointer_pos - self.last_click_pos).length();
+
+                    // 双击判定：时间间隔小于0.5秒，位置偏移小于10像素
+                    if time_delta < 0.5 && pos_delta < 10.0 {
+                        // 双击选中区域，复制到剪贴板并退出
+                        if self.copy_to_clipboard().is_ok() {
+                            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                        }
+                        return;
+                    }
+                }
+            }
+
+            // 更新上次点击时间和位置
+            self.last_click_time = current_time;
+            self.last_click_pos = pointer_pos;
+
             if self.current_tool == Tool::Select && !self.show_toolbar {
                 self.is_selecting = true;
                 self.selection_start = pointer_pos;

@@ -190,8 +190,8 @@ impl ScreenshotApp {
 
         eprintln!("调试: crop_selection 最终坐标 - x={}, y={}, width={}, height={}", x, y, width, height);
 
-        // 查找包含选择区域的屏幕
-        for (screen, screenshot) in self.screens.iter().zip(&self.screenshots) {
+        // 查找包含选择区域的屏幕，使用原始分辨率截图
+        for (screen, screenshot) in self.screens.iter().zip(&self.original_screenshots) {
             let screen_rect = get_screen_rect(screen);
 
             if screen_rect.contains(selection_rect.center()) {
@@ -238,8 +238,8 @@ impl ScreenshotApp {
             return None;
         }
 
-        // 查找包含选择区域的屏幕
-        for (screen, screenshot) in self.screens.iter().zip(&self.screenshots) {
+        // 查找包含选择区域的屏幕，使用原始分辨率截图
+        for (screen, screenshot) in self.screens.iter().zip(&self.original_screenshots) {
             let screen_rect = get_screen_rect(screen);
 
             if screen_rect.contains(selection_rect.center()) {

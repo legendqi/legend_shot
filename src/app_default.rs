@@ -79,6 +79,7 @@ pub struct MouseSelectionRect {
 pub struct ScreenshotApp {
     pub screens: Vec<Monitor>,
     pub screenshots: Vec<ImageBuffer<Rgba<u8>, Vec<u8>>>,
+    pub original_screenshots: Vec<ImageBuffer<Rgba<u8>, Vec<u8>>>, // 原始分辨率截图，用于保存
     pub screenshots_positions: Vec<(usize, usize, ImageBuffer<Rgba<u8>, Vec<u8>>)>,
     pub display_textures_split: Vec<(usize,usize,egui::TextureHandle)>,
     pub original_selection_rect: Option<Rect>,
@@ -123,7 +124,11 @@ pub struct ScreenshotApp {
     pub screen_scale: f32,
     pub image_scale: f32,
     pub signal_sender: Option<Arc<Mutex<mpsc::Sender<AppSignal>>>>,
-    pub signal_receiver: Option<Arc<Mutex<mpsc::Receiver<AppSignal>>>>
+    pub signal_receiver: Option<Arc<Mutex<mpsc::Receiver<AppSignal>>>>,
+
+    // 双击检测
+    pub last_click_time: f64,
+    pub last_click_pos: Pos2,
 }
 
 impl Default for ScreenshotApp {
@@ -132,6 +137,7 @@ impl Default for ScreenshotApp {
         Self {
             screens: Vec::new(),
             screenshots: Vec::new(),
+            original_screenshots: Vec::new(),
             screenshots_positions: Vec::new(),
             display_textures_split: Vec::new(),
             original_selection_rect: None,
@@ -150,7 +156,7 @@ impl Default for ScreenshotApp {
             annotations: Vec::new(),
             current_annotation: None,
             brush_size: 3.0,
-            annotation_color: Color32::BLUE,
+            annotation_color: Color32::RED,
             text_input: None,
             number_input: None,
             tool_bar_focused: false,
@@ -165,6 +171,8 @@ impl Default for ScreenshotApp {
             image_scale: 1.0,
             signal_sender: Some(Arc::new(Mutex::new(sender))),
             signal_receiver: Some(Arc::new(Mutex::new(receiver))),
+            last_click_time: 0.0,
+            last_click_pos: Pos2::ZERO,
         }
     }
 }
@@ -176,17 +184,22 @@ impl ScreenshotApp {
     pub fn capture_screens(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         self.screens = Monitor::all()?;
         self.screenshots.clear();
+        self.original_screenshots.clear();
         for screen in &self.screens {
             self.screen_scale = screen.scale_factor().unwrap();
             let image = screen.capture_image()?;
             let (width, height) = image.dimensions();
             self.screen_width = width as i32;
             self.screen_height = height as i32;
+
+            // 始终保存原始分辨率截图用于导出
+            self.original_screenshots.push(image.clone());
+
             if width <= MAX_TEXTURE_SIZE as u32 && height <= MAX_TEXTURE_SIZE as u32 {
                 self.screenshots_positions.push((0, 0, image.clone()));
                 self.screenshots.push(image.clone());
             } else {
-                // 超过纹理，使用图片压缩方案
+                // 超过纹理限制，使用图片压缩方案仅用于显示
                 let resized_img = get_compress_image(width, height, image);
                 self.screenshots_positions.push((0, 0, resized_img.clone()));
                 self.screenshots.push(resized_img.clone());
