@@ -69,7 +69,7 @@ impl TextInputState {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct MouseSelectionRect {
     pub start: MousePosition,
     pub end: MousePosition,

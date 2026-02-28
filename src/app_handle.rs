@@ -15,7 +15,7 @@ impl ScreenshotApp {
         let mut window_image = monitors[0].capture_image().map_err(|e| e.to_string())?;
         let (width, height) = window_image.dimensions();
         if width > MAX_TEXTURE_SIZE as u32 || height > MAX_TEXTURE_SIZE as u32 {
-            window_image = get_compress_image(width, height, window_image);;
+            window_image = get_compress_image(width, height, window_image);
         }
         let x = ((self.mouse_start.0.min(self.mouse_end.0) as f32) * self.image_scale) as i32;
         let y = ((self.mouse_start.1.min(self.mouse_end.1) as f32) * self.image_scale) as i32;
@@ -62,13 +62,41 @@ impl ScreenshotApp {
     }
 
     pub fn set_to_clipboard(&self, image: ImageBuffer<Rgba<u8>, Vec<u8>>) -> Result<(), String> {
-        let mut clipboard = Clipboard::new().map_err(|e| e.to_string())?;
-        let img_data = arboard::ImageData {
-            width: image.width() as usize,
-            height: image.height() as usize,
-            bytes: std::borrow::Cow::Borrowed(image.as_raw()),
-        };
-        clipboard.set_image(img_data).map_err(|e| e.to_string())?;
+        // 在 Linux 上使用 xclip 来保持剪贴板数据
+        #[cfg(target_os = "linux")]
+        {
+            // 保存到临时文件
+            let temp_dir = std::env::temp_dir();
+            let temp_file = temp_dir.join("legend_shot_clipboard.png");
+
+            image.save(&temp_file).map_err(|e| format!("保存临时文件失败: {}", e))?;
+
+            // 使用 xclip 设置剪贴板
+            let status = std::process::Command::new("xclip")
+                .args(["-selection", "clipboard", "-t", "image/png", "-i"])
+                .arg(&temp_file)
+                .status()
+                .map_err(|e| format!("执行 xclip 失败: {}。请确保已安装 xclip", e))?;
+
+            if !status.success() {
+                return Err("xclip 设置剪贴板失败".to_string());
+            }
+        }
+
+        // 在其他平台上使用 arboard
+        #[cfg(not(target_os = "linux"))]
+        {
+            let mut clipboard = Clipboard::new().map_err(|e| format!("无法访问剪贴板: {}", e))?;
+
+            let img_data = arboard::ImageData {
+                width: image.width() as usize,
+                height: image.height() as usize,
+                bytes: std::borrow::Cow::Owned(image.into_raw()),
+            };
+
+            clipboard.set_image(img_data).map_err(|e| format!("设置剪贴板图片失败: {}", e))?;
+        }
+
         Ok(())
     }
 
@@ -87,54 +115,87 @@ impl ScreenshotApp {
     }
 
     pub fn copy_to_clipboard(&mut self) -> Result<(), String> {
+        eprintln!("=== GUI 模式: 开始复制到剪贴板 ===");
+        eprintln!("调试: selection_rect = {:?}", self.selection_rect);
+        eprintln!("调试: mouse_selection_rect = {:?}", self.mouse_selection_rect);
+
         if self.selection_rect.is_none() {
             return Err("请选择要复制的图片".to_string());
         }
+
         let mut annotations = self.annotations.clone();
         if let (Some(text_state), Some(annotation)) = (&self.text_input, &self.current_annotation) {
             let mut new_annotation = annotation.clone();
             new_annotation.text = text_state.text.clone();
             annotations.push(new_annotation);
         }
-        // let result_image = self.xcap_capture_region().map_err(|e| e.to_string())?;
-        // let temp_dir_path = temp_dir();
-        // let now = chrono::Local::now();
-        // let filename = now.format("screenshot_%Y-%m-%d_%H-%M-%S.png").to_string();
-        // let temp_file_path = temp_dir_path.join(filename);
-        // result_image.save(temp_file_path.clone()).map_err(|e| e.to_string())?;
-        // let temp_file_path_str = temp_file_path.to_str().unwrap().to_string();
-        // std::io::stdout().write_all(temp_file_path_str.into_bytes().as_bytes()).unwrap();
-        // std::io::stdout().flush().unwrap();  // 确保立即输出
-        // self.set_to_clipboard(result_image).map_err(|e| e.to_string())?;
+
         if let Some(cropped_image) = self.crop_selection(self.selection_rect.unwrap(), &annotations) {
-            // 转换为剪贴板格式
-            let temp_dir_path = temp_dir();
+            eprintln!("调试: 裁剪成功，图片尺寸: {}x{}", cropped_image.width(), cropped_image.height());
+
+            // 保存临时文件用于调试/输出
+            let temp_dir_path = std::env::temp_dir();
             let now = chrono::Local::now();
             let filename = now.format("screenshot_%Y-%m-%d_%H-%M-%S.png").to_string();
             let temp_file_path = temp_dir_path.join(filename);
-            cropped_image.save(temp_file_path.clone()).map_err(|e| e.to_string())?;
-            let temp_file_path_str = temp_file_path.to_str().unwrap().to_string();
-            std::io::stdout().write_all(temp_file_path_str.into_bytes().as_bytes()).unwrap();
-            std::io::stdout().flush().unwrap();  // 确保立即输出
-            self.set_to_clipboard(cropped_image).map_err(|e| e.to_string())?;
+
+            if let Err(e) = cropped_image.save(&temp_file_path) {
+                eprintln!("警告: 保存临时文件失败: {}", e);
+            }
+
+            // 输出临时文件路径（用于外部脚本）
+            if let Some(path_str) = temp_file_path.to_str() {
+                let _ = std::io::stdout().write_all(path_str.as_bytes());
+                let _ = std::io::stdout().flush();
+            }
+
+            // 设置到剪贴板
+            self.set_to_clipboard(cropped_image)?;
+            eprintln!("=== GUI 模式: 复制到剪贴板成功 ===");
+        } else {
+            eprintln!("错误: 裁剪图片失败");
+            return Err("裁剪图片失败".to_string());
         }
         Ok(())
     }
 
     fn crop_selection(&self, selection_rect: Rect, annotations: &Vec<Annotation>) -> Option<ImageBuffer<Rgba<u8>, Vec<u8>>> {
-        let x = ((self.mouse_start.0.min(self.mouse_end.0) as f32) * self.image_scale) as i32;
-        let y = ((self.mouse_start.1.min(self.mouse_end.1) as f32) * self.image_scale) as i32;
-        let width = ((self.mouse_end.0 - self.mouse_start.0).abs() as f32 * self.image_scale) as i32;
-        let height = ((self.mouse_end.1 - self.mouse_start.1).abs() as f32 * self.image_scale) as i32;
+        // 尝试从 mouse_selection_rect 获取坐标，如果无效则从 selection_rect 计算
+        let (x, y, width, height) = if let Some(mouse_sel) = self.mouse_selection_rect {
+            let w = (mouse_sel.end.0 - mouse_sel.start.0).abs();
+            let h = (mouse_sel.end.1 - mouse_sel.start.1).abs();
+            if w > 0 && h > 0 {
+                // mouse_selection_rect 有效
+                let x = mouse_sel.start.0.min(mouse_sel.end.0);
+                let y = mouse_sel.start.1.min(mouse_sel.end.1);
+                (x, y, w, h)
+            } else {
+                // mouse_selection_rect 无效，从 selection_rect 计算
+                eprintln!("调试: mouse_selection_rect 无效，从 selection_rect 计算");
+                let x = selection_rect.min.x as i32;
+                let y = selection_rect.min.y as i32;
+                let w = selection_rect.width() as i32;
+                let h = selection_rect.height() as i32;
+                (x, y, w, h)
+            }
+        } else {
+            // mouse_selection_rect 为空，从 selection_rect 计算
+            eprintln!("调试: mouse_selection_rect 为空，从 selection_rect 计算");
+            let x = selection_rect.min.x as i32;
+            let y = selection_rect.min.y as i32;
+            let w = selection_rect.width() as i32;
+            let h = selection_rect.height() as i32;
+            (x, y, w, h)
+        };
+
+        eprintln!("调试: crop_selection 最终坐标 - x={}, y={}, width={}, height={}", x, y, width, height);
+
         // 查找包含选择区域的屏幕
         for (screen, screenshot) in self.screens.iter().zip(&self.screenshots) {
             let screen_rect = get_screen_rect(screen);
 
             if screen_rect.contains(selection_rect.center()) {
-                // 计算在屏幕图像中的相对位置
-
                 if width > 0 && height > 0 {
-                    // 创建新的图像缓冲区
                     let mut cropped_image: ImageBuffer<Rgba<u8>, Vec<u8>> = ImageBuffer::new(width as u32, height as u32);
 
                     // 复制原始截图内容
@@ -143,8 +204,13 @@ impl ScreenshotApp {
                             let dst_x = src_x - x;
                             let dst_y = src_y - y;
 
-                            let pixel = screenshot.get_pixel(src_x as u32, src_y as u32);
-                            cropped_image.put_pixel(dst_x.try_into().unwrap(), dst_y.try_into().unwrap(), pixel.clone());
+                            // 边界检查
+                            if src_x >= 0 && src_y >= 0 &&
+                               src_x < screenshot.width() as i32 &&
+                               src_y < screenshot.height() as i32 {
+                                let pixel = screenshot.get_pixel(src_x as u32, src_y as u32);
+                                cropped_image.put_pixel(dst_x as u32, dst_y as u32, pixel.clone());
+                            }
                         }
                     }
 
@@ -158,6 +224,48 @@ impl ScreenshotApp {
         None
     }
 
+    /// 测试模式专用的裁剪方法，不需要标注
+    pub fn crop_selection_for_test(&self) -> Option<ImageBuffer<Rgba<u8>, Vec<u8>>> {
+        let mouse_sel = self.mouse_selection_rect?;
+        let selection_rect = self.selection_rect?;
+
+        let x = (mouse_sel.start.0.min(mouse_sel.end.0)) as i32;
+        let y = (mouse_sel.start.1.min(mouse_sel.end.1)) as i32;
+        let width = (mouse_sel.end.0 - mouse_sel.start.0).abs() as i32;
+        let height = (mouse_sel.end.1 - mouse_sel.start.1).abs() as i32;
+
+        if width <= 0 || height <= 0 {
+            return None;
+        }
+
+        // 查找包含选择区域的屏幕
+        for (screen, screenshot) in self.screens.iter().zip(&self.screenshots) {
+            let screen_rect = get_screen_rect(screen);
+
+            if screen_rect.contains(selection_rect.center()) {
+                let mut cropped_image: ImageBuffer<Rgba<u8>, Vec<u8>> = ImageBuffer::new(width as u32, height as u32);
+
+                for src_y in y..(y + height) {
+                    for src_x in x..(x + width) {
+                        let dst_x = src_x - x;
+                        let dst_y = src_y - y;
+
+                        if src_x >= 0 && src_y >= 0 &&
+                           src_x < screenshot.width() as i32 &&
+                           src_y < screenshot.height() as i32 {
+                            let pixel = screenshot.get_pixel(src_x as u32, src_y as u32);
+                            cropped_image.put_pixel(dst_x as u32, dst_y as u32, pixel.clone());
+                        }
+                    }
+                }
+
+                return Some(cropped_image);
+            }
+        }
+
+        None
+    }
+
     fn add_annotations_to_image(&self, image: &mut ImageBuffer<Rgba<u8>, Vec<u8>>, annotations: &Vec<Annotation>) {
         for annotation in annotations {
             self.draw_single_annotation_to_image(image, annotation);
@@ -168,49 +276,92 @@ impl ScreenshotApp {
         if annotation.points.len() < 2 {
             return;
         }
-        if self.mouse_selection_rect.is_none() {
-            return;
-        }
-        let mouse_selection_rect = self.mouse_selection_rect.unwrap();
+
+        // 使用 selection_rect 计算相对坐标（而不是 mouse_selection_rect）
+        let selection_rect = match self.selection_rect {
+            Some(rect) => rect,
+            None => return,
+        };
+
         let color = annotation.color;
+
+        // 计算标注点相对于选择区域左上角的偏移
+        let offset_x = selection_rect.min.x;
+        let offset_y = selection_rect.min.y;
+
         match annotation.tool {
             Tool::Pen => {
-                // 修复画笔断断续续问题：使用更平滑的Bresenham算法
-                for window in annotation.mouse_points.windows(2) {
+                // 绘制画笔
+                for window in annotation.points.windows(2) {
                     if let [start, end] = window {
-                        // let start_rel: MousePosition = (start.0 - mouse_selection_rect.start.0, start.1 - mouse_selection_rect.start.1);
-                        // let end_rel: MousePosition = (end.0 - mouse_selection_rect.start.0, end.1 - mouse_selection_rect.start.1);
-                        let start_rel: MousePosition = (((start.0 - mouse_selection_rect.start.0) as f32 * self.image_scale) as i32, ((start.1 - mouse_selection_rect.start.1) as f32 * self.image_scale) as i32);
-                        let end_rel: MousePosition = (((end.0 - mouse_selection_rect.start.0) as f32 * self.image_scale) as i32, ((end.1 - mouse_selection_rect.start.1) as f32 * self.image_scale) as i32);
-                        // 修复：使用浮点坐标转换确保连续
+                        let start_rel = ((start.x - offset_x) as i32, (start.y - offset_y) as i32);
+                        let end_rel = ((end.x - offset_x) as i32, (end.y - offset_y) as i32);
                         self.draw_smooth_line(image, start_rel, end_rel, color, annotation);
                     }
                 }
             }
             Tool::Rectangle => {
                 // 绘制矩形
-                self.draw_rectangle(image, annotation, mouse_selection_rect, color)
+                if let (Some(&start), Some(&end)) = (annotation.points.first(), annotation.points.last()) {
+                    let start_rel = ((start.x - offset_x) as i32, (start.y - offset_y) as i32);
+                    let end_rel = ((end.x - offset_x) as i32, (end.y - offset_y) as i32);
+                    let rect_rel = Rect::from_min_max(
+                        Pos2::new(start_rel.0 as f32, start_rel.1 as f32),
+                        Pos2::new(end_rel.0 as f32, end_rel.1 as f32)
+                    );
+
+                    // 绘制矩形边框
+                    for y in (rect_rel.min.y as usize)..((rect_rel.min.y + annotation.stroke_width) as usize) {
+                        for x in (rect_rel.min.x as usize)..((rect_rel.max.x) as usize) {
+                            if x < image.width() as usize && y < image.height() as usize {
+                                image.put_pixel(x as u32, y as u32, Rgba([color.r(), color.g(), color.b(), color.a()]));
+                            }
+                        }
+                    }
+                    for y in (rect_rel.max.y as usize)..((rect_rel.max.y + annotation.stroke_width) as usize) {
+                        for x in (rect_rel.min.x as usize)..((rect_rel.max.x + annotation.stroke_width) as usize) {
+                            if x < image.width() as usize && y < image.height() as usize {
+                                image.put_pixel(x as u32, y as u32, Rgba([color.r(), color.g(), color.b(), color.a()]));
+                            }
+                        }
+                    }
+                    for x in (rect_rel.min.x as usize)..((rect_rel.min.x + annotation.stroke_width) as usize) {
+                        for y in (rect_rel.min.y as usize)..((rect_rel.max.y) as usize) {
+                            if x < image.width() as usize && y < image.height() as usize {
+                                image.put_pixel(x as u32, y as u32, Rgba([color.r(), color.g(), color.b(), color.a()]));
+                            }
+                        }
+                    }
+                    for x in (rect_rel.max.x as usize)..((rect_rel.max.x + annotation.stroke_width) as usize) {
+                        for y in (rect_rel.min.y as usize)..((rect_rel.max.y + annotation.stroke_width) as usize) {
+                            if x < image.width() as usize && y < image.height() as usize {
+                                image.put_pixel(x as u32, y as u32, Rgba([color.r(), color.g(), color.b(), color.a()]));
+                            }
+                        }
+                    }
+                }
             }
             Tool::Arrow => {
-                // 修复：实心箭头绘制
-                if let (Some(&start), Some(&end)) = (annotation.mouse_points.first(), annotation.mouse_points.last()) {
-                    let start_rel: MousePosition = (((start.0 - mouse_selection_rect.start.0) as f32 * self.image_scale) as i32, ((start.1 - mouse_selection_rect.start.1) as f32 * self.image_scale) as i32);
-                    let end_rel: MousePosition = (((end.0 - mouse_selection_rect.start.0) as f32 * self.image_scale) as i32, ((end.1 - mouse_selection_rect.start.1) as f32 * self.image_scale) as i32);
+                // 绘制箭头
+                if let (Some(&start), Some(&end)) = (annotation.points.first(), annotation.points.last()) {
+                    let start_rel = ((start.x - offset_x) as i32, (start.y - offset_y) as i32);
+                    let end_rel = ((end.x - offset_x) as i32, (end.y - offset_y) as i32);
 
                     // 绘制箭头线
                     self.draw_smooth_line(image, start_rel, end_rel, color, annotation);
+
+                    // 绘制箭头头
                     let end_pos = Pos2::new(end_rel.0 as f32, end_rel.1 as f32);
                     let start_pos = Pos2::new(start_rel.0 as f32, start_rel.1 as f32);
-                    // 绘制实心箭头头
                     self.draw_filled_arrow_head(image, end_pos, start_pos, color);
                 }
             }
             Tool::Text => {
-                // 改进的文本绘制
-                if let Some(&pos) = annotation.mouse_points.first() {
+                // 绘制文本
+                if let Some(&pos) = annotation.points.first() {
                     let pos_rel = Pos2::new(
-                        (pos.0 - mouse_selection_rect.start.0).max(0) as f32 * self.image_scale,
-                        (pos.1 - mouse_selection_rect.start.1).max(0) as f32 * self.image_scale
+                        (pos.x - offset_x).max(0.0),
+                        (pos.y - offset_y).max(0.0)
                     );
 
                     if !annotation.text.is_empty() {
@@ -220,15 +371,15 @@ impl ScreenshotApp {
             }
             Tool::Mosaic => {
                 // 马赛克绘制
-                if let (Some(&start), Some(&end)) = (annotation.mouse_points.first(), annotation.mouse_points.last()) {
+                if let (Some(&start), Some(&end)) = (annotation.points.first(), annotation.points.last()) {
                     let rect_rel = Rect::from_min_max(
                         Pos2::new(
-                            (start.0  - mouse_selection_rect.start.0).max(0) as f32 * self.image_scale,
-                            (start.1  - mouse_selection_rect.start.1).max(0) as f32 * self.image_scale
+                            (start.x - offset_x).max(0.0),
+                            (start.y - offset_y).max(0.0)
                         ),
                         Pos2::new(
-                            (end.0 - mouse_selection_rect.start.0).min(image.width() as i32) as f32 * self.image_scale,
-                            (end.1 - mouse_selection_rect.start.1).min(image.height() as i32) as f32 * self.image_scale
+                            (end.x - offset_x).min(image.width() as f32),
+                            (end.y - offset_y).min(image.height() as f32)
                         )
                     );
 
@@ -237,9 +388,11 @@ impl ScreenshotApp {
             }
             Tool::Number => {
                 // 序号绘制
-                if let Some(&pos) = annotation.mouse_points.first() {
-                    let pos: MousePosition = (((pos.0 - mouse_selection_rect.start.0).max(0) as f32 * self.image_scale) as i32, ((pos.1 - mouse_selection_rect.start.1).max(0) as f32 * self.image_scale) as i32);
-                    self.draw_number(image, pos, &annotation.number.unwrap().to_string(), color);
+                if let Some(&pos) = annotation.points.first() {
+                    let pos_rel = ((pos.x - offset_x).max(0.0) as i32, (pos.y - offset_y).max(0.0) as i32);
+                    if let Some(number) = annotation.number {
+                        self.draw_number(image, pos_rel, &number.to_string(), color);
+                    }
                 }
             }
             _ => {}
