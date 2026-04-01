@@ -5,29 +5,25 @@ edition = "2024"
 
 [dependencies]
 arboard = "3.3"
-egui = "0.33.2"
-eframe = { version = "0.33.2", features = ["default", "x11"] }
-egui-file-dialog = "0.12.0"
-chrono = {version = "0.4.42", features = ["std"]}
-image = { version = "0.25.8", features = ["png", "jpeg"] }
+egui = { version = "0.33.2", default-features = false, features = ["default_fonts"] }
+eframe = { version = "0.33.2", default-features = false, features = ["glow", "accesskit", "x11"] }
+egui-file-dialog = { version = "0.12.0", default-features = false }
+chrono = { version = "0.4.42", default-features = false, features = ["std", "clock"] }
+image = { version = "0.25.8", default-features = false, features = ["png", "jpeg"] }
 xcap = "0.7.1"
 device_query = "4.0.1"
-clap = { version = "4.5", features = ["derive"] }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+clap = { version = "4.5", default-features = false, features = ["derive", "std"] }
+serde = { version = "1", default-features = false, features = ["derive", "std"] }
+serde_json = { version = "1", default-features = false, features = ["std"] }
 directories = "6.0"
 
 [profile.release]
-# 主要影响大小的配置
-opt-level = "z"  # 最小化大小优化
-lto = true       # 链接时优化
-codegen-units = 1 # 减少代码生成单元提高优化
-panic = "abort"  # 使用 abort 而不是 unwind
-strip = true     # 剥离调试符号
-
-# 可选配置
-debug = false    # 禁用调试信息
-#incremental = false # 禁用增量编译
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
+debug = false
 
 [target.aarch64-unknown-linux-gnu]
 linker = "aarch64-linux-gnu-gcc"

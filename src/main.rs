@@ -60,17 +60,18 @@ fn main() -> eframe::Result<()> {
         options,
         Box::new(|cc| {
             let mut fonts = egui::FontDefinitions::default();
-            fonts.font_data.insert(
-                "my_font".to_owned(),
-                Arc::new(egui::FontData::from_static(include_bytes!(
-                    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"
-                ))),
-            );
-            fonts
-                .families
-                .entry(egui::FontFamily::Proportional)
-                .or_default()
-                .insert(0, "my_font".to_owned());
+
+            if let Ok(font_data) = std::fs::read("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc") {
+                fonts.font_data.insert(
+                    "my_font".to_owned(),
+                    Arc::new(egui::FontData::from_owned(font_data)),
+                );
+                fonts
+                    .families
+                    .entry(egui::FontFamily::Proportional)
+                    .or_default()
+                    .insert(0, "my_font".to_owned());
+            }
 
             cc.egui_ctx.set_fonts(fonts);
 
