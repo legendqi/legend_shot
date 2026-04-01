@@ -1,19 +1,46 @@
-# Legend Shot
+# Legend_Shot
 
-Legend Shot 是一个轻量级截图工具，专为 Linux 桌面环境设计。支持全屏截图、区域选择、标注编辑，并可保存到文件或复制到剪贴板。
+Legend_Shot 是一个截图工具，它允许用户捕获屏幕、进行注释和编辑截图。该工具具有直观的用户界面，提供多种功能如选择区域、绘制形状、添加文本以及保存或复制截图。
 
 ## 功能特性
 
-- **全屏截图**：自动捕获所有显示器
-- **区域选择**：鼠标框选任意区域
-- **标注工具**：画笔、矩形、箭头、文字、马赛克、序号标注
-- **快捷操作**：双击复制到剪贴板，工具栏保存/复制
-- **中文支持**：内置中文字体，界面完全中文化
-- **配置持久化**：记住上次保存目录
+- **屏幕捕捉**：能够捕捉整个屏幕或选定区域。
+- **注释工具**：提供多种注释工具，包括笔刷、矩形、移动、马赛克等。
+- **文本输入**：允许在截图上添加自定义文本。
+- **保存与复制**：可以将截图保存到本地或复制到剪贴板。
 
-## 安装
+## 构建说明
 
-### Ubuntu/Debian (推荐)
+要构建此项目，请运行以下命令之一：
+
+- `./build.sh setup`：安装编译目标。
+- `./build.sh setup_targets`：设置构建目标。
+- `./build.sh build_linux_amd64`：为 Linux AMD64 构建。
+- `./build.sh build_linux_arm64`：为 Linux ARM64 构建。
+- `./build.sh build_windows`：为 Windows 构建。
+- `./build.sh build_macos_arm64`：为 macOS ARM64 构建。
+- `./build.sh build_macos_intel`：为 macOS Intel 构建。
+- `./build.sh build_all`：为所有平台构建。
+
+## 使用方法
+
+启动应用后，您可以使用提供的工具进行截图和注释。使用工具栏中的按钮来选择不同的注释工具，添加文本，或者保存和复制截图。
+
+## 贡献
+
+欢迎贡献！如果您有兴趣改进 Legend_Shot，请查阅源代码并提交 Pull Request。
+
+## 许可证
+
+此项目使用 MIT 许可证。详情请查看仓库中的 LICENSE 文件。
+
+---
+
+## Ubuntu 支持 (v0.1.0)
+
+本次更新主要针对 Ubuntu/Debian 平台进行了适配和优化。
+
+### 安装 (Ubuntu/Debian)
 
 一键安装：
 ```bash
@@ -42,9 +69,9 @@ cargo build --release
 sudo cp target/release/legend_shot /usr/local/bin/
 ```
 
-## 配置快捷键
+### 配置快捷键
 
-### GNOME (Ubuntu 默认)
+#### GNOME (Ubuntu 默认)
 
 1. 打开 **设置** → **键盘** → **自定义快捷键**
 2. 点击 **添加快捷键**
@@ -53,15 +80,13 @@ sudo cp target/release/legend_shot /usr/local/bin/
    - **命令**：`legend_shot`
    - **快捷键**：`Ctrl+Alt+A` (或自定义)
 
-### KDE Plasma
+#### KDE Plasma
 
 1. 打开 **系统设置** → **快捷键**
 2. 点击 **编辑** → **新建** → **全局快捷键** → **命令/URL**
 3. 设置触发器和命令
 
-## 使用方法
-
-### 基本操作
+### 操作说明
 
 | 操作 | 说明 |
 |------|------|
@@ -69,76 +94,34 @@ sudo cp target/release/legend_shot /usr/local/bin/
 | 双击选区 | 复制到剪贴板并关闭 |
 | ESC | 取消并退出 |
 
-### 工具栏
-
-框选后，工具栏出现在选区边缘：
-
-| 图标 | 功能 |
-|------|------|
-| 选择 | 移动/调整选区 |
-| 画笔 | 自由绘制 |
-| 矩形 | 绘制矩形框 |
-| 箭头 | 绘制箭头 |
-| 文字 | 添加文字标注 |
-| 马赛克 | 模糊敏感区域 |
-| 序号 | 添加编号标注 |
-| 保存 | 保存到文件 |
-| 复制 | 复制到剪贴板 |
-| 退出 | 取消截图 |
+框选后工具栏出现在选区边缘，支持：选择、画笔、矩形、箭头、文字、马赛克、序号、保存、复制、退出。
 
 ### 命令行参数
 
 ```bash
 legend_shot --help
 
-# 测试模式 (自动化脚本)
+# 测试模式
 legend_shot --test "100,100,400,300" --action copy
 legend_shot --test "100,100,400,300" --action save --output screenshot.png
 ```
 
-## 系统要求
+### 系统要求
 
-- **操作系统**：Ubuntu 18.04+ / Debian 10+ / 其他 Linux 发行版
-- **架构**：x86_64
-- **依赖**：
-  - `fonts-noto-cjk` (中文字体)
-  - `xclip` (剪贴板支持)
-  - X11 图形环境
+- Ubuntu 18.04+ / Debian 10+
+- x86_64 架构
+- 依赖：`fonts-noto-cjk`, `xclip`, X11 图形环境
 
-## 配置文件
+### 配置文件
 
-配置保存在 `~/.config/legend_shot/config.json`：
+配置保存在 `~/.config/legend_shot/config.json`，会记住上次保存目录。
 
-```json
-{
-  "last_save_dir": "/home/user/Pictures"
-}
-```
+### 更新日志
 
-## 更新日志
+#### v0.1.0 (2026-04-01)
 
-### v0.1.0 (2026-04-01)
-
-- 首个正式发布版本
 - 支持 Ubuntu/Debian 平台
 - 集成 egui-file-dialog 替代 GTK 对话框
 - 添加中文支持 (NotoSansCJK 字体)
 - 配置持久化 (保存目录记忆)
 - 内置安装脚本
-
-## 构建
-
-跨平台构建脚本：
-
-```bash
-./build.sh setup          # 安装编译目标
-./build.sh linux-amd64    # Linux x86_64
-./build.sh linux-arm64    # Linux ARM64
-./build.sh windows        # Windows
-./build.sh macos-arm64    # macOS ARM
-./build.sh macos-intel    # macOS Intel
-```
-
-## 许可证
-
-MIT License
