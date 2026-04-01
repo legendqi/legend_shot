@@ -32,11 +32,12 @@ Type=Application
 Categories=Utility;Graphics;
 EOF
 
-# Create a simple icon (SVG -> PNG would need additional tools, using placeholder)
-# For now, create a minimal PNG icon
-cat > ${APPDIR}/${APP_NAME}.png << 'PNGEOF'
-PNG placeholder - replace with actual icon
-PNGEOF
+# Create icon using Python PIL
+python3 -c "
+from PIL import Image
+img = Image.new('RGB', (256, 256), color='#4A90D9')
+img.save('${APPDIR}/${APP_NAME}.png')
+"
 
 # Copy font (needed for Chinese support)
 if [ -f /usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc ]; then
