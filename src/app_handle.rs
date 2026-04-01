@@ -1,15 +1,17 @@
-use std::env::temp_dir;
 use std::io::Write;
+#[cfg(not(target_os = "linux"))]
 use arboard::Clipboard;
 use device_query::MousePosition;
 use eframe::emath::{Pos2, Rect};
-use egui::{Color32};
-use image::{EncodableLayout, ImageBuffer, Rgba};
+use egui::Color32;
+use image::{ImageBuffer, Rgba};
 use crate::app_default::{Annotation, MouseSelectionRect, ScreenshotApp, Tool, MAX_TEXTURE_SIZE};
 use crate::ui::{draw_simple_char, get_compress_image, get_screen_rect};
 
+#[allow(dead_code)]
 impl ScreenshotApp {
 
+    #[allow(dead_code)]
     pub fn xcap_capture_region(&mut self) -> Result<ImageBuffer<Rgba<u8>, Vec<u8>>, String> {
         let monitors = xcap::Monitor::all().unwrap();
         let mut window_image = monitors[0].capture_image().map_err(|e| e.to_string())?;
@@ -34,31 +36,6 @@ impl ScreenshotApp {
             }
         }
         Ok(cropped_image)
-    }
-
-    pub fn handle_file_dialog(&self, image: ImageBuffer<Rgba<u8>, Vec<u8>>) -> Result<(), String> {
-        let now = chrono::Local::now();
-        let filename = now.format("screenshot_%Y-%m-%d_%H-%M-%S.png").to_string();
-        let file_save_dialog = rfd::FileDialog::new();
-        let save_path = file_save_dialog.set_file_name(filename.as_str())
-            .add_filter("PNG Image", &["png"])
-            .add_filter("JPEG Image", &["jpg", "jpeg"])
-            .save_file();
-        if let Some(path) = save_path {
-            // 根据文件扩展名自动选择保存格式
-            let format = match path.as_path().extension().and_then(|e| e.to_str()) {
-                Some("jpg") | Some("jpeg") => image::ImageFormat::Jpeg,
-                _ => image::ImageFormat::Png,
-            };
-            // 执行实际保存操作
-            if let Err(_e) = image.save_with_format(&path, format) {
-                return Err("保存失败".to_string());
-            }
-            // else {
-            //     println!("截图已成功保存至: {:?}", path.as_path());
-            // }
-        }
-        Ok(())
     }
 
     pub fn set_to_clipboard(&self, image: ImageBuffer<Rgba<u8>, Vec<u8>>) -> Result<(), String> {
@@ -100,18 +77,43 @@ impl ScreenshotApp {
         Ok(())
     }
 
-    pub fn save_screenshot(&mut self) -> Result<(), String> {
+    pub fn trigger_save_dialog(&mut self) {
         if self.selection_rect.is_none() {
-            return Err("请选择要保存的图片".to_string());
+            return;
         }
-        // let result_image = self.xcap_capture_region().map_err(|e| e.to_string())?;
-        // self.handle_file_dialog(result_image)?;
-        if let Some(cropped_image) = self.crop_selection(self.selection_rect.unwrap(), &self.annotations) {
-            self.handle_file_dialog(cropped_image)?;
-            std::io::stdout().write_all("save".as_bytes()).unwrap();
-            std::io::stdout().flush().unwrap();
+
+        let mut annotations = self.annotations.clone();
+        if let (Some(text_state), Some(annotation)) = (&self.text_input, &self.current_annotation) {
+            let mut new_annotation = annotation.clone();
+            new_annotation.text = text_state.text.clone();
+            annotations.push(new_annotation);
         }
-        Ok(())
+
+        if let Some(cropped_image) = self.crop_selection(self.selection_rect.unwrap(), &annotations) {
+            self.pending_save_image = Some(cropped_image);
+
+            if let Some(ref dir) = self.config.last_save_dir {
+                self.save_dialog.config_mut().initial_directory = dir.clone();
+            }
+
+            self.save_dialog.save_file();
+        }
+    }
+
+    pub fn save_image_to_path(&mut self, image: &ImageBuffer<Rgba<u8>, Vec<u8>>, path: &std::path::Path) {
+        let format = match path.extension().and_then(|e| e.to_str()) {
+            Some("jpg") | Some("jpeg") => image::ImageFormat::Jpeg,
+            _ => image::ImageFormat::Png,
+        };
+
+        if let Err(e) = image.save_with_format(path, format) {
+            eprintln!("保存失败: {}", e);
+        } else {
+            if let Some(parent) = path.parent() {
+                self.config.last_save_dir = Some(parent.to_path_buf());
+                self.save_config();
+            }
+        }
     }
 
     pub fn copy_to_clipboard(&mut self) -> Result<(), String> {

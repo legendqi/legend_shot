@@ -1,12 +1,20 @@
-use std::sync::{Arc, Mutex, mpsc};
+use std::path::PathBuf;
+use std::sync::{mpsc, Arc, Mutex};
 
+use crate::ui::get_compress_image;
 use device_query::{DeviceState, MousePosition};
 use eframe::emath::{Pos2, Rect};
 use eframe::epaint::{Color32, ColorImage};
 use egui::Id;
+use egui_file_dialog::FileDialog;
 use image::{ImageBuffer, Rgba};
+use serde::{Deserialize, Serialize};
 use xcap::Monitor;
-use crate::ui::get_compress_image;
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct AppConfig {
+    pub last_save_dir: Option<PathBuf>,
+}
 
 #[derive(Debug, Clone, Copy)]
 pub enum AppSignal {
@@ -27,7 +35,7 @@ pub enum Tool {
     ColorPicker,
     Save,
     Copy,
-    Exit
+    Exit,
 }
 
 #[derive(Clone)]
@@ -47,7 +55,7 @@ pub struct TextInputState {
     pub text: String,
     pub preedit: Option<String>, // (预编辑文本, 光标位置)
     pub is_active: bool,
-    pub widget_id: Id, // 添加widget_id用于焦点管理
+    pub widget_id: Id,   // 添加widget_id用于焦点管理
     pub has_focus: bool, // 新增：跟踪焦点状态
     pub last_interaction_time: f64,
 }
@@ -75,16 +83,14 @@ pub struct MouseSelectionRect {
     pub end: MousePosition,
 }
 
-
 pub struct ScreenshotApp {
     pub screens: Vec<Monitor>,
     pub screenshots: Vec<ImageBuffer<Rgba<u8>, Vec<u8>>>,
     pub original_screenshots: Vec<ImageBuffer<Rgba<u8>, Vec<u8>>>, // 原始分辨率截图，用于保存
     pub screenshots_positions: Vec<(usize, usize, ImageBuffer<Rgba<u8>, Vec<u8>>)>,
-    pub display_textures_split: Vec<(usize,usize,egui::TextureHandle)>,
+    pub display_textures_split: Vec<(usize, usize, egui::TextureHandle)>,
     pub original_selection_rect: Option<Rect>,
     pub mouse_original_selection_rect: Option<MouseSelectionRect>,
-
 
     // 选择状态
     pub selection_rect: Option<Rect>,
@@ -102,7 +108,7 @@ pub struct ScreenshotApp {
     pub current_tool: Tool,
     pub annotations: Vec<Annotation>,
     pub current_annotation: Option<Annotation>,
-    pub  brush_size: f32,
+    pub brush_size: f32,
     pub annotation_color: Color32,
     pub text_input: Option<TextInputState>,
     pub number_input: Option<i32>,
@@ -118,13 +124,19 @@ pub struct ScreenshotApp {
     pub text_input_finalized: bool,
     pub device_state: DeviceState,
 
-    pub screen_width: i32, // 屏幕宽度
+    pub screen_width: i32,  // 屏幕宽度
     pub screen_height: i32, // 屏幕高度
 
     pub screen_scale: f32,
     pub image_scale: f32,
     pub signal_sender: Option<Arc<Mutex<mpsc::Sender<AppSignal>>>>,
     pub signal_receiver: Option<Arc<Mutex<mpsc::Receiver<AppSignal>>>>,
+
+    // 文件保存对话框
+    pub save_dialog: FileDialog,
+    pub pending_save_image: Option<ImageBuffer<Rgba<u8>, Vec<u8>>>,
+    pub config: AppConfig,
+    pub config_path: PathBuf,
 
     // 双击检测
     pub last_click_time: f64,
@@ -171,8 +183,49 @@ impl Default for ScreenshotApp {
             image_scale: 1.0,
             signal_sender: Some(Arc::new(Mutex::new(sender))),
             signal_receiver: Some(Arc::new(Mutex::new(receiver))),
+            save_dialog: FileDialog::new()
+                .title("保存截图")
+                .add_save_extension("PNG 图片", "png")
+                .add_save_extension("JPEG 图片", "jpg")
+                .default_save_extension("PNG 图片")
+                .default_file_name(&format!(
+                    "screenshot_{}",
+                    chrono::Local::now().format("%Y%m%d_%H%M%S")
+                ))
+                .as_modal(true)
+                .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+                .allow_file_overwrite(true),
+            pending_save_image: None,
+            config: AppConfig::default(),
+            config_path: PathBuf::new(),
             last_click_time: 0.0,
             last_click_pos: Pos2::ZERO,
+        }
+    }
+}
+
+impl ScreenshotApp {
+    pub fn with_config(config: AppConfig, config_path: PathBuf) -> Self {
+        let (sender, receiver) = mpsc::channel();
+        let mut app = Self::default();
+        app.config = config.clone();
+        app.config_path = config_path;
+
+        if let Some(ref dir) = config.last_save_dir {
+            app.save_dialog.config_mut().initial_directory = dir.clone();
+        }
+
+        app.signal_sender = Some(Arc::new(Mutex::new(sender)));
+        app.signal_receiver = Some(Arc::new(Mutex::new(receiver)));
+        app
+    }
+
+    pub fn save_config(&self) {
+        if let Ok(json) = serde_json::to_string_pretty(&self.config) {
+            if let Some(parent) = self.config_path.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            let _ = std::fs::write(&self.config_path, json);
         }
     }
 }
@@ -180,7 +233,6 @@ impl Default for ScreenshotApp {
 pub const MAX_TEXTURE_SIZE: usize = 2048;
 
 impl ScreenshotApp {
-
     pub fn capture_screens(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         self.screens = Monitor::all()?;
         self.screenshots.clear();
@@ -222,12 +274,12 @@ impl ScreenshotApp {
     // fn split_screenshot(&self, image: &RgbaImage, max_tile_size: u32) -> Vec<(usize, usize, RgbaImage)> {
     //     let (width, height) = image.dimensions();
     //     let mut tiles = Vec::new();
-    // 
+    //
     //     for y in (0..height).step_by(max_tile_size as usize) {
     //         for x in (0..width).step_by(max_tile_size as usize) {
     //             let tile_width = (width - x).min(max_tile_size);
     //             let tile_height = (height - y).min(max_tile_size);
-    // 
+    //
     //             let tile: ImageBuffer<Rgba<u8>, Vec<u8>> = image.view(x, y, tile_width, tile_height).to_image();
     //             tiles.push((x as usize, y as usize, tile));
     //         }

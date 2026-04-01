@@ -75,7 +75,7 @@ impl ScreenshotApp {
                                         std::thread::spawn(move || {
                                             // 保存截图逻辑...
                                             // 保存完成后可能需要再次重绘
-                                            if let(Some(signal_sender)) = sender_clone {
+                                            if let Some(signal_sender)  = sender_clone {
                                                 // 发送信号给主窗口
                                                 std::thread::sleep(std::time::Duration::from_millis(20));
                                                 signal_sender.lock().unwrap().send(AppSignal::Copy).ok();
@@ -86,24 +86,7 @@ impl ScreenshotApp {
                                 };
                                 let save_response = self.purple_icon_button(ui, Tool::Save, ctx, SAVE_ICON, "save");
                                 if save_response.clicked() {
-                                    if self.selection_rect.unwrap().contains(self.toolbar_position) {
-                                        self.show_toolbar = false;
-                                        ctx.request_repaint();
-                                        let sender_clone = self.signal_sender.clone();
-                                        std::thread::spawn(move || {
-                                            // 保存截图逻辑...
-                                            // 保存完成后可能需要再次重绘
-                                            if let(Some(signal_sender)) = sender_clone {
-                                                // 发送信号给主窗口
-                                                std::thread::sleep(std::time::Duration::from_millis(20));
-                                                signal_sender.lock().unwrap().send(AppSignal::Save).ok();
-                                            }
-                                        });
-                                    } else {
-                                        let _ = self.save_screenshot();
-                                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                                    }
-
+                                    self.trigger_save_dialog();
                                 }
 
 

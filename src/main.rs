@@ -1,5 +1,7 @@
-use crate::app_default::ScreenshotApp;
+use crate::app_default::{AppConfig, ScreenshotApp};
 use clap::Parser;
+use std::path::PathBuf;
+use std::sync::Arc;
 
 mod ui;
 mod app_default;
@@ -34,15 +36,17 @@ fn main() -> eframe::Result<()> {
         return run_test_mode(&region, &args.action, args.output.as_deref());
     }
 
+    // 加载配置
+    let config_path = get_config_path();
+    let config = load_config(&config_path);
+
     // 正常 GUI 模式
-    let mut app = ScreenshotApp::default();
+    let mut app = ScreenshotApp::with_config(config, config_path);
     let _ = app.capture_screens();
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_fullscreen(true)
-            // .with_maximized(true) // windows下会导致下方任务栏显示白条
             .with_decorations(false)
-            // .with_always_on_top() // windows下会导致文件保存对话框无法弹出
             .with_maximize_button(false)
             .with_minimize_button(false)
             .with_close_button(false)
@@ -54,12 +58,44 @@ fn main() -> eframe::Result<()> {
     eframe::run_native(
         "",
         options,
-        Box::new(|_cc| {
+        Box::new(|cc| {
+            let mut fonts = egui::FontDefinitions::default();
+            fonts.font_data.insert(
+                "my_font".to_owned(),
+                Arc::new(egui::FontData::from_static(include_bytes!(
+                    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"
+                ))),
+            );
+            fonts
+                .families
+                .entry(egui::FontFamily::Proportional)
+                .or_default()
+                .insert(0, "my_font".to_owned());
+
+            cc.egui_ctx.set_fonts(fonts);
+
             Ok(Box::new(app))
         }),
     )?;
 
     Ok(())
+}
+
+fn get_config_path() -> PathBuf {
+    let dirs = directories::ProjectDirs::from("com", "legend", "legend_shot");
+    dirs.map(|d| d.config_dir().join("config.json"))
+        .unwrap_or_else(|| PathBuf::from("legend_shot_config.json"))
+}
+
+fn load_config(path: &PathBuf) -> AppConfig {
+    if path.exists() {
+        if let Ok(content) = std::fs::read_to_string(path) {
+            if let Ok(config) = serde_json::from_str(&content) {
+                return config;
+            }
+        }
+    }
+    AppConfig::default()
 }
 
 /// 自动测试模式: 直接截图并保存/复制到剪贴板
