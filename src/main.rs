@@ -61,16 +61,16 @@ fn main() -> eframe::Result<()> {
         Box::new(|cc| {
             let mut fonts = egui::FontDefinitions::default();
 
-            if let Ok(font_data) = std::fs::read("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc") {
+            if let Some(font_data) = load_cjk_font() {
                 fonts.font_data.insert(
-                    "my_font".to_owned(),
+                    "cjk_font".to_owned(),
                     Arc::new(egui::FontData::from_owned(font_data)),
                 );
                 fonts
                     .families
                     .entry(egui::FontFamily::Proportional)
                     .or_default()
-                    .insert(0, "my_font".to_owned());
+                    .insert(0, "cjk_font".to_owned());
             }
 
             cc.egui_ctx.set_fonts(fonts);
@@ -97,6 +97,25 @@ fn load_config(path: &PathBuf) -> AppConfig {
         }
     }
     AppConfig::default()
+}
+
+fn load_cjk_font() -> Option<Vec<u8>> {
+    let font_paths = [
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+        "/System/Library/Fonts/STHeiti Light.ttc",
+        "/System/Library/Fonts/PingFang.ttc",
+        "C:\\Windows\\Fonts\\msyh.ttc",
+        "C:\\Windows\\Fonts\\simhei.ttf",
+    ];
+
+    for path in font_paths {
+        if let Ok(data) = std::fs::read(path) {
+            return Some(data);
+        }
+    }
+    None
 }
 
 /// 自动测试模式: 直接截图并保存/复制到剪贴板
