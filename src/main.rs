@@ -42,15 +42,22 @@ fn main() -> eframe::Result<()> {
 
     // 正常 GUI 模式
     let mut app = ScreenshotApp::with_config(config, config_path);
-    let _ = app.capture_screens();
+
+    // macOS 需要先截图再全屏
+    #[cfg(target_os = "macos")]
+    {
+        let _ = app.capture_screens();
+    }
+
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_fullscreen(true)
+            .with_fullsize_content_view(true)
             .with_decorations(false)
             .with_maximize_button(false)
             .with_minimize_button(false)
             .with_close_button(false)
-            .with_max_inner_size(egui::vec2(4096., 4096.))
+            .with_visible(false)
             .with_transparent(true),
         ..Default::default()
     };
@@ -213,4 +220,3 @@ fn run_test_mode(region: &str, action: &str, output: Option<&str>) -> eframe::Re
 
     Ok(())
 }
-
