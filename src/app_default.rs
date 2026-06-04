@@ -1,13 +1,12 @@
 use std::path::PathBuf;
 use std::sync::{mpsc, Arc, Mutex};
 
-use crate::ui::get_compress_image;
 use device_query::{DeviceState, MousePosition};
 use eframe::emath::{Pos2, Rect};
 use eframe::epaint::{Color32, ColorImage};
 use egui::Id;
 use egui_file_dialog::FileDialog;
-use image::{ImageBuffer, Rgba};
+use image::{GenericImageView, ImageBuffer, Rgba};
 use serde::{Deserialize, Serialize};
 use xcap::Monitor;
 
@@ -84,6 +83,7 @@ pub struct MouseSelectionRect {
 }
 
 pub struct ScreenshotApp {
+    pub is_first: bool,
     pub screens: Vec<Monitor>,
     pub screenshots: Vec<ImageBuffer<Rgba<u8>, Vec<u8>>>,
     pub original_screenshots: Vec<ImageBuffer<Rgba<u8>, Vec<u8>>>, // 原始分辨率截图，用于保存
@@ -147,6 +147,7 @@ impl Default for ScreenshotApp {
     fn default() -> Self {
         let (sender, receiver) = mpsc::channel();
         Self {
+            is_first: true,
             screens: Vec::new(),
             screenshots: Vec::new(),
             original_screenshots: Vec::new(),
@@ -235,6 +236,8 @@ pub const MAX_TEXTURE_SIZE: usize = 2048;
 impl ScreenshotApp {
     pub fn capture_screens(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         self.screens = Monitor::all()?;
+        self.screen_width = self.screens[0].width()? as i32;
+        self.screen_height = self.screens[0].height()? as i32;
         self.screenshots.clear();
         self.original_screenshots.clear();
         for screen in &self.screens {
@@ -251,21 +254,16 @@ impl ScreenshotApp {
                 self.screenshots_positions.push((0, 0, image.clone()));
                 self.screenshots.push(image.clone());
             } else {
-                // 超过纹理限制，使用图片压缩方案仅用于显示
-                let resized_img = get_compress_image(width, height, image);
-                self.screenshots_positions.push((0, 0, resized_img.clone()));
-                self.screenshots.push(resized_img.clone());
-
-                // 分块纹理，处理，暂时注释，使用图片压缩方案
-                // for y in (0..height).step_by(MAX_TEXTURE_SIZE) {
-                //     for x in (0..width).step_by(MAX_TEXTURE_SIZE) {
-                //         let tile_width = (width - x).min(MAX_TEXTURE_SIZE as u32);
-                //         let tile_height = (height - y).min(MAX_TEXTURE_SIZE as u32);
-                //         let tile = image.view(x, y, tile_width, tile_height).to_image();
-                //         self.screenshots_positions.push((x as usize, y as usize, tile.clone()));
-                //         self.screenshots.push(tile);
-                //     }
-                // }
+                // 分块纹理，处理大尺寸屏幕
+                for y in (0..height).step_by(MAX_TEXTURE_SIZE) {
+                    for x in (0..width).step_by(MAX_TEXTURE_SIZE) {
+                        let tile_width = (width - x).min(MAX_TEXTURE_SIZE as u32);
+                        let tile_height = (height - y).min(MAX_TEXTURE_SIZE as u32);
+                        let tile = image.view(x, y, tile_width, tile_height).to_image();
+                        self.screenshots_positions.push((x as usize, y as usize, tile.clone()));
+                        self.screenshots.push(tile);
+                    }
+                }
             }
         }
         Ok(())

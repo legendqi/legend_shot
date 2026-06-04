@@ -6,31 +6,35 @@ use eframe::emath::{Pos2, Rect};
 use egui::Color32;
 use image::{ImageBuffer, Rgba};
 use crate::app_default::{Annotation, MouseSelectionRect, ScreenshotApp, Tool, MAX_TEXTURE_SIZE};
-use crate::ui::{draw_simple_char, get_compress_image, get_screen_rect};
+use crate::ui::{draw_simple_char, get_screen_rect};
 
 #[allow(dead_code)]
 impl ScreenshotApp {
 
     #[allow(dead_code)]
     pub fn xcap_capture_region(&mut self) -> Result<ImageBuffer<Rgba<u8>, Vec<u8>>, String> {
-        let monitors = xcap::Monitor::all().unwrap();
-        let mut window_image = monitors[0].capture_image().map_err(|e| e.to_string())?;
-        let (width, height) = window_image.dimensions();
-        if width > MAX_TEXTURE_SIZE as u32 || height > MAX_TEXTURE_SIZE as u32 {
-            window_image = get_compress_image(width, height, window_image);
+        let window_image = self.screens[0].capture_image().map_err(|e| e.to_string())?;
+        let (image_width, image_height) = window_image.dimensions();
+        let (x, y, width, height);
+        if image_width > MAX_TEXTURE_SIZE as u32 || image_height > MAX_TEXTURE_SIZE as u32 {
+            x = ((self.mouse_start.0.min(self.mouse_end.0) as f32) * self.screen_scale) as i32;
+            y = ((self.mouse_start.1.min(self.mouse_end.1) as f32) * self.screen_scale) as i32;
+            width = ((self.mouse_end.0 - self.mouse_start.0).abs() as f32 * self.screen_scale) as i32;
+            height = ((self.mouse_end.1 - self.mouse_start.1).abs() as f32 * self.screen_scale) as i32;
+        } else {
+            x = ((self.mouse_start.0.min(self.mouse_end.0) as f32) * self.image_scale) as i32;
+            y = ((self.mouse_start.1.min(self.mouse_end.1) as f32) * self.image_scale) as i32;
+            width = ((self.mouse_end.0 - self.mouse_start.0).abs() as f32 * self.image_scale) as i32;
+            height = ((self.mouse_end.1 - self.mouse_start.1).abs() as f32 * self.image_scale) as i32;
         }
-        let x = ((self.mouse_start.0.min(self.mouse_end.0) as f32) * self.image_scale) as i32;
-        let y = ((self.mouse_start.1.min(self.mouse_end.1) as f32) * self.image_scale) as i32;
-        let width = ((self.mouse_end.0 - self.mouse_start.0).abs() as f32 * self.image_scale) as i32;
-        let height = ((self.mouse_end.1 - self.mouse_start.1).abs() as f32 * self.image_scale) as i32;
-
         let mut cropped_image: ImageBuffer<Rgba<u8>, Vec<u8>> = ImageBuffer::new(width as u32, height as u32);
         // 复制原始截图内容
-        for src_y in y..(y + height) {
-            for src_x in x..(x + width) {
+        for mut src_y in y..(y + height) {
+            for mut src_x in x..(x + width) {
                 let dst_x = src_x - x;
                 let dst_y = src_y - y;
-
+                src_x = src_x.min(image_width as i32 - 1);
+                src_y = src_y.min(image_height as i32 - 1);
                 let pixel = window_image.get_pixel(src_x as u32, src_y as u32);
                 cropped_image.put_pixel(dst_x.try_into().unwrap(), dst_y.try_into().unwrap(), pixel.clone());
             }
@@ -135,7 +139,6 @@ impl ScreenshotApp {
         if let Some(cropped_image) = self.crop_selection(self.selection_rect.unwrap(), &annotations) {
             eprintln!("调试: 裁剪成功，图片尺寸: {}x{}", cropped_image.width(), cropped_image.height());
 
-            // 保存临时文件用于调试/输出
             let temp_dir_path = std::env::temp_dir();
             let now = chrono::Local::now();
             let filename = now.format("screenshot_%Y-%m-%d_%H-%M-%S.png").to_string();
@@ -145,13 +148,11 @@ impl ScreenshotApp {
                 eprintln!("警告: 保存临时文件失败: {}", e);
             }
 
-            // 输出临时文件路径（用于外部脚本）
             if let Some(path_str) = temp_file_path.to_str() {
                 let _ = std::io::stdout().write_all(path_str.as_bytes());
                 let _ = std::io::stdout().flush();
             }
 
-            // 设置到剪贴板
             self.set_to_clipboard(cropped_image)?;
             eprintln!("=== GUI 模式: 复制到剪贴板成功 ===");
         } else {
