@@ -384,7 +384,8 @@ impl ScreenshotApp {
             } else if let Some(annotation) = &self.current_annotation {
                 // 对于非文本工具，直接完成标注
                 if self.current_tool != Tool::Text {
-                    if annotation.points.len() > 1 {
+                    let min_points = if annotation.tool == Tool::Mosaic { 1 } else { 2 };
+                    if annotation.points.len() >= min_points {
                         self.annotations.push(annotation.clone());
                     }
                     self.current_annotation = None;

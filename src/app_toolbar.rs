@@ -327,7 +327,8 @@ impl ScreenshotApp {
     }
 
     fn draw_single_annotation(&self, painter: &egui::Painter, annotation: &Annotation) {
-        if annotation.points.len() < 2 {
+        let min_points = if annotation.tool == Tool::Mosaic { 1 } else { 2 };
+        if annotation.points.len() < min_points {
             return;
         }
 
