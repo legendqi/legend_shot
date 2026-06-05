@@ -4,13 +4,13 @@ use eframe::epaint::{Color32, Hsva, Shape, Stroke, StrokeKind};
 use egui::{color_picker, text_selection, Button, Id, Popup, PopupCloseBehavior, Response, Ui, ViewportId};
 use egui::color_picker::color_picker_hsva_2d;
 use crate::app_default::{Annotation, AppSignal, ScreenshotApp, Tool};
-use crate::ui::{load_texture_from_png, ARROW_ICON, COPY_ICON, EXIT_ICON, MOSAIC_ICON, MOVE_ICON, NUMBER_ICON, PEN_ICON, RECTANGLE_ICON, SAVE_ICON, WORD_ICON};
+use crate::ui::{load_texture_from_png, ARROW_ICON, COPY_ICON, EXIT_ICON, MOSAIC_ICON, MOVE_ICON, NUMBER_ICON, PEN_ICON, RECTANGLE_ICON, SAVE_ICON, WORD_ICON, UNDO_ICON};
 
 impl ScreenshotApp {
     pub(crate) fn draw_toolbar(&mut self, ctx: &egui::Context) {
         self.tool_bar_focused = false;
         if let Some(selection_rect) = self.selection_rect {
-            let toolbar_size = Vec2::new(50.0, 40.0);
+            let toolbar_size = Vec2::new(380.0, 40.0);
             // 计算工具栏位置：在选择框右下角，并与选择框右对齐
             let mut toolbar_pos = Pos2::new(
                 selection_rect.min.x, // 左对齐：工具栏左侧与选择框左侧对齐
@@ -60,8 +60,38 @@ impl ScreenshotApp {
 
                                 // 颜色选择
                                 self.custom_color_picker(ui, ctx);
-                                // 画笔大小
-                                // ui.add(egui::Slider::new(&mut self.brush_size, 1.0..=20.0));
+
+                                let undo_icon = load_texture_from_png(ctx, UNDO_ICON, "undo").unwrap();
+                                let undo_button = Button::new("")
+                                    .min_size(Vec2::new(30.0, 30.0))
+                                    .frame(false);
+                                let undo_response = ui.add_sized(Vec2::new(30.0, 30.0), undo_button);
+                                let undo_hovered = undo_response.hovered() || undo_response.has_focus();
+                                if undo_hovered {
+                                    self.tool_bar_focused = true;
+                                    ui.painter().circle_filled(
+                                        undo_response.rect.center(),
+                                        undo_response.rect.width() / 2.0,
+                                        Color32::BLUE,
+                                    );
+                                } else {
+                                    ui.painter().circle_filled(
+                                        undo_response.rect.center(),
+                                        undo_response.rect.width() / 2.0,
+                                        Color32::from_rgb(0, 100, 255),
+                                    );
+                                }
+                                let undo_icon_size = Vec2::new(20.0, 20.0);
+                                let undo_icon_rect = Rect::from_center_size(undo_response.rect.center(), undo_icon_size);
+                                ui.painter().image(
+                                    undo_icon,
+                                    undo_icon_rect,
+                                    Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                                    Color32::WHITE,
+                                );
+                                if undo_response.clicked() {
+                                    self.annotations.pop();
+                                }
 
                                 // 操作： 复制，保存，退出
                                 if self.purple_icon_button(ui, Tool::Copy, ctx, COPY_ICON, "copy").clicked() {
@@ -211,7 +241,14 @@ impl ScreenshotApp {
         let painter = ui.painter();
 
         for annotation in &self.annotations {
-            self.draw_single_annotation(painter, annotation);
+            if annotation.tool == Tool::Mosaic {
+                self.draw_single_annotation(painter, annotation);
+            }
+        }
+        for annotation in &self.annotations {
+            if annotation.tool != Tool::Mosaic {
+                self.draw_single_annotation(painter, annotation);
+            }
         }
 
         if let Some(annotation) = &self.current_annotation {
@@ -367,24 +404,15 @@ impl ScreenshotApp {
                 }
             }
             Tool::Mosaic => {
-                // 绘制马赛克效果
                 if let (Some(&start), Some(&end)) = (annotation.points.first(), annotation.points.last()) {
-                    let mouse_first =  annotation.mouse_points.first().unwrap();
-                    let mouse_last =  annotation.mouse_points.last().unwrap();
-                    let start_pos = Pos2::new(mouse_first.0 as f32, mouse_first.1 as f32);
-                    let end_pos = Pos2::new(mouse_last.0 as f32, mouse_last.1 as f32);
                     let rect = Rect::from_two_pos(start, end);
-                    let mouse_rect = Rect::from_two_pos(start_pos, end_pos);
 
-                    // 马赛克块大小（可调整）
                     let block_size = 4.0;
 
-                    // 计算马赛克网格
                     let width = rect.width();
                     let height = rect.height();
                     let cols = (width / block_size).ceil() as usize;
                     let rows = (height / block_size).ceil() as usize;
-                    // 绘制马赛克网格
                     for row in 0..rows {
                         for col in 0..cols {
                             let block_rect = Rect::from_min_size(
@@ -394,22 +422,17 @@ impl ScreenshotApp {
                                 ),
                                 Vec2::new(block_size, block_size)
                             );
-                            let mouse_block_rect = Rect::from_min_size(
-                                Pos2::new(
-                                    mouse_rect.min.x + col as f32 * block_size,
-                                    mouse_rect.min.y + row as f32 * block_size
-                                ),
-                                Vec2::new(block_size, block_size)
-                            );
-                            let pixel = self.screenshots[0].get_pixel(mouse_block_rect.min.x as u32, mouse_block_rect.min.y as u32);
-                            let current_color = Color32::from_rgb(pixel[0], pixel[1], pixel[2]);
-                            painter.rect_filled(block_rect, egui::CornerRadius::ZERO, current_color);
-                            //painter.rect_filled(block_rect, egui::CornerRadius::ZERO, Color32::from_rgba_premultiplied(25, 0, 55, 200));
+                            // 采样坐标需要乘以 screen_scale 转换为物理坐标
+                            let sample_x = ((rect.min.x + col as f32 * block_size) * self.screen_scale) as u32;
+                            let sample_y = ((rect.min.y + row as f32 * block_size) * self.screen_scale) as u32;
+                            let tex = &self.screenshots[0];
+                            if sample_x < tex.width() && sample_y < tex.height() {
+                                let pixel = tex.get_pixel(sample_x, sample_y);
+                                let current_color = Color32::from_rgb(pixel[0], pixel[1], pixel[2]);
+                                painter.rect_filled(block_rect, egui::CornerRadius::ZERO, current_color);
+                            }
                         }
                     }
-
-                    // // 可选：绘制马赛克区域的边框
-                    // painter.rect_stroke(rect, egui::CornerRadius::ZERO, stroke, StrokeKind::Middle);
                 }
             }
             Tool::Number => {

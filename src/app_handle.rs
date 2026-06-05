@@ -270,44 +270,49 @@ impl ScreenshotApp {
     }
 
     fn add_annotations_to_image(&self, image: &mut ImageBuffer<Rgba<u8>, Vec<u8>>, annotations: &Vec<Annotation>) {
+        let background = image.clone();
         for annotation in annotations {
-            self.draw_single_annotation_to_image(image, annotation);
+            if annotation.tool == Tool::Mosaic {
+                self.draw_single_annotation_to_image(image, annotation, &background);
+            }
+        }
+        for annotation in annotations {
+            if annotation.tool != Tool::Mosaic {
+                self.draw_single_annotation_to_image(image, annotation, &background);
+            }
         }
     }
 
-    fn draw_single_annotation_to_image(&self, image: &mut ImageBuffer<Rgba<u8>, Vec<u8>>, annotation: &Annotation) {
-        if annotation.points.len() < 2 {
+    fn draw_single_annotation_to_image(&self, image: &mut ImageBuffer<Rgba<u8>, Vec<u8>>, annotation: &Annotation, mosaic_source: &ImageBuffer<Rgba<u8>, Vec<u8>>) {
+        if annotation.mouse_points.is_empty() {
             return;
         }
 
-        // 使用 selection_rect 计算相对坐标（而不是 mouse_selection_rect）
-        let selection_rect = match self.selection_rect {
+        let mouse_selection_rect = match self.mouse_selection_rect {
             Some(rect) => rect,
             None => return,
         };
 
         let color = annotation.color;
-
-        // 计算标注点相对于选择区域左上角的偏移
-        let offset_x = selection_rect.min.x;
-        let offset_y = selection_rect.min.y;
+        let offset_x = mouse_selection_rect.start.0;
+        let offset_y = mouse_selection_rect.start.1;
 
         match annotation.tool {
             Tool::Pen => {
-                // 绘制画笔
-                for window in annotation.points.windows(2) {
+                // 绘制画笔 - 使用 mouse_points
+                for window in annotation.mouse_points.windows(2) {
                     if let [start, end] = window {
-                        let start_rel = ((start.x - offset_x) as i32, (start.y - offset_y) as i32);
-                        let end_rel = ((end.x - offset_x) as i32, (end.y - offset_y) as i32);
+                        let start_rel = (start.0 - offset_x, start.1 - offset_y);
+                        let end_rel = (end.0 - offset_x, end.1 - offset_y);
                         self.draw_smooth_line(image, start_rel, end_rel, color, annotation);
                     }
                 }
             }
             Tool::Rectangle => {
-                // 绘制矩形
-                if let (Some(&start), Some(&end)) = (annotation.points.first(), annotation.points.last()) {
-                    let start_rel = ((start.x - offset_x) as i32, (start.y - offset_y) as i32);
-                    let end_rel = ((end.x - offset_x) as i32, (end.y - offset_y) as i32);
+                // 绘制矩形 - 使用 mouse_points
+                if let (Some(&start), Some(&end)) = (annotation.mouse_points.first(), annotation.mouse_points.last()) {
+                    let start_rel = (start.0 - offset_x, start.1 - offset_y);
+                    let end_rel = (end.0 - offset_x, end.1 - offset_y);
                     let rect_rel = Rect::from_min_max(
                         Pos2::new(start_rel.0 as f32, start_rel.1 as f32),
                         Pos2::new(end_rel.0 as f32, end_rel.1 as f32)
@@ -345,10 +350,10 @@ impl ScreenshotApp {
                 }
             }
             Tool::Arrow => {
-                // 绘制箭头
-                if let (Some(&start), Some(&end)) = (annotation.points.first(), annotation.points.last()) {
-                    let start_rel = ((start.x - offset_x) as i32, (start.y - offset_y) as i32);
-                    let end_rel = ((end.x - offset_x) as i32, (end.y - offset_y) as i32);
+                // 绘制箭头 - 使用 mouse_points
+                if let (Some(&start), Some(&end)) = (annotation.mouse_points.first(), annotation.mouse_points.last()) {
+                    let start_rel = (start.0 - offset_x, start.1 - offset_y);
+                    let end_rel = (end.0 - offset_x, end.1 - offset_y);
 
                     // 绘制箭头线
                     self.draw_smooth_line(image, start_rel, end_rel, color, annotation);
@@ -360,11 +365,11 @@ impl ScreenshotApp {
                 }
             }
             Tool::Text => {
-                // 绘制文本
-                if let Some(&pos) = annotation.points.first() {
+                // 绘制文本 - 使用 mouse_points
+                if let Some(&pos) = annotation.mouse_points.first() {
                     let pos_rel = Pos2::new(
-                        (pos.x - offset_x).max(0.0),
-                        (pos.y - offset_y).max(0.0)
+                        (pos.0 - offset_x).max(0) as f32,
+                        (pos.1 - offset_y).max(0) as f32
                     );
 
                     if !annotation.text.is_empty() {
@@ -373,26 +378,24 @@ impl ScreenshotApp {
                 }
             }
             Tool::Mosaic => {
-                // 马赛克绘制
-                if let (Some(&start), Some(&end)) = (annotation.points.first(), annotation.points.last()) {
+                if let (Some(&start), Some(&end)) = (annotation.mouse_points.first(), annotation.mouse_points.last()) {
                     let rect_rel = Rect::from_min_max(
                         Pos2::new(
-                            (start.x - offset_x).max(0.0),
-                            (start.y - offset_y).max(0.0)
+                            (start.0 - offset_x).max(0) as f32,
+                            (start.1 - offset_y).max(0) as f32
                         ),
                         Pos2::new(
-                            (end.x - offset_x).min(image.width() as f32),
-                            (end.y - offset_y).min(image.height() as f32)
+                            (end.0 - offset_x).min(image.width() as i32) as f32,
+                            (end.1 - offset_y).min(image.height() as i32) as f32
                         )
                     );
-
-                    self.draw_mosaic(image, rect_rel, 4);
+                    self.draw_mosaic(image, mosaic_source, rect_rel, 4);
                 }
             }
             Tool::Number => {
-                // 序号绘制
-                if let Some(&pos) = annotation.points.first() {
-                    let pos_rel = ((pos.x - offset_x).max(0.0) as i32, (pos.y - offset_y).max(0.0) as i32);
+                // 序号绘制 - 使用 mouse_points
+                if let Some(&pos) = annotation.mouse_points.first() {
+                    let pos_rel = ((pos.0 - offset_x).max(0), (pos.1 - offset_y).max(0));
                     if let Some(number) = annotation.number {
                         self.draw_number(image, pos_rel, &number.to_string(), color);
                     }
@@ -717,7 +720,7 @@ impl ScreenshotApp {
     }
 
     // 马赛克效果
-    fn draw_mosaic(&self, image: &mut ImageBuffer<Rgba<u8>, Vec<u8>>, rect: Rect, block_size: u32) {
+    fn draw_mosaic(&self, image: &mut ImageBuffer<Rgba<u8>, Vec<u8>>, source: &ImageBuffer<Rgba<u8>, Vec<u8>>, rect: Rect, block_size: u32) {
         let x1 = rect.min.x as u32;
         let y1 = rect.min.y as u32;
         let x2 = rect.max.x as u32;
@@ -733,8 +736,8 @@ impl ScreenshotApp {
 
                 for y in block_y..block_end_y {
                     for x in block_x..block_end_x {
-                        if x < image.width() && y < image.height() {
-                            let pixel = image.get_pixel(x, y);
+                        if x < source.width() && y < source.height() {
+                            let pixel = source.get_pixel(x, y);
                             r_sum += pixel[0] as u32;
                             g_sum += pixel[1] as u32;
                             b_sum += pixel[2] as u32;

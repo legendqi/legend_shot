@@ -15,6 +15,7 @@ pub const  PEN_ICON : &[u8] = include_bytes!("icon/pen.png");
 pub const RECTANGLE_ICON : &[u8] = include_bytes!("icon/rectangle.png");
 pub const SAVE_ICON : &[u8] = include_bytes!("icon/save.png");
 pub const WORD_ICON : &[u8] = include_bytes!("icon/word.png");
+pub const UNDO_ICON : &[u8] = include_bytes!("icon/undo.png");
 
 pub fn get_screen_rect(screen: &Monitor) -> Rect {
     Rect::from_min_size(
