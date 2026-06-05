@@ -273,6 +273,7 @@ impl ScreenshotApp {
         let background = image.clone();
         for annotation in annotations {
             if annotation.tool == Tool::Mosaic {
+                eprintln!("调试[导出]: 马赛克 mouse_points.first={:?}, last={:?}, total_points={}", annotation.mouse_points.first(), annotation.mouse_points.last(), annotation.mouse_points.len());
                 self.draw_single_annotation_to_image(image, annotation, &background);
             }
         }
@@ -313,7 +314,7 @@ impl ScreenshotApp {
                 if let (Some(&start), Some(&end)) = (annotation.mouse_points.first(), annotation.mouse_points.last()) {
                     let start_rel = (start.0 - offset_x, start.1 - offset_y);
                     let end_rel = (end.0 - offset_x, end.1 - offset_y);
-                    let rect_rel = Rect::from_min_max(
+                    let rect_rel = Rect::from_two_pos(
                         Pos2::new(start_rel.0 as f32, start_rel.1 as f32),
                         Pos2::new(end_rel.0 as f32, end_rel.1 as f32)
                     );
@@ -379,16 +380,9 @@ impl ScreenshotApp {
             }
             Tool::Mosaic => {
                 if let (Some(&start), Some(&end)) = (annotation.mouse_points.first(), annotation.mouse_points.last()) {
-                    let rect_rel = Rect::from_min_max(
-                        Pos2::new(
-                            (start.0 - offset_x).max(0) as f32,
-                            (start.1 - offset_y).max(0) as f32
-                        ),
-                        Pos2::new(
-                            (end.0 - offset_x).min(image.width() as i32) as f32,
-                            (end.1 - offset_y).min(image.height() as i32) as f32
-                        )
-                    );
+                    let start_rel = Pos2::new((start.0 - offset_x) as f32, (start.1 - offset_y) as f32);
+                    let end_rel = Pos2::new((end.0 - offset_x) as f32, (end.1 - offset_y) as f32);
+                    let rect_rel = Rect::from_two_pos(start_rel, end_rel);
                     self.draw_mosaic(image, mosaic_source, rect_rel, 4);
                 }
             }

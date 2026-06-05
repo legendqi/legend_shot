@@ -43,11 +43,8 @@ fn main() -> eframe::Result<()> {
     // 正常 GUI 模式
     let mut app = ScreenshotApp::with_config(config, config_path);
 
-    // macOS 需要先截图再全屏
-    #[cfg(target_os = "macos")]
-    {
-        let _ = app.capture_screens();
-    }
+    // 所有平台在窗口显示前截图，避免截图包含遮罩层
+    let _ = app.capture_screens();
 
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()

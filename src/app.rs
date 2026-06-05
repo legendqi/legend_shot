@@ -4,24 +4,8 @@ use egui::Visuals;
 
 impl App for ScreenshotApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // 首次运行截图（仅 macOS 需要先截图再全屏）
-        #[cfg(target_os = "macos")]
-        {
-            if self.is_first {
-                let _ = self.capture_screens();
-                self.is_first = false;
-            }
-            if self.display_textures_split.is_empty() {
-                self.screen_to_texture(ctx);
-            }
-        }
-
-        #[cfg(any(target_os = "windows", target_os = "linux"))]
-        {
-            // Windows/Linux: 首次运行时截图
-            if self.screenshots.is_empty() {
-                self.capture_screens().expect("截图失败");
-            }
+        if self.display_textures_split.is_empty() {
+            self.screen_to_texture(ctx);
         }
 
         self.window_rect = ctx.viewport_rect();
@@ -29,10 +13,7 @@ impl App for ScreenshotApp {
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE)
             .show(ctx, |ui| {
-                #[cfg(target_os = "macos")]
-                {
-                    self.draw_screens(ui);
-                }
+                self.draw_screens(ui);
                 self.draw_overlay(ui);
                 self.draw_annotations(ui);
                 self.handle_input(ui, ctx);

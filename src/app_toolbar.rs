@@ -239,6 +239,11 @@ impl ScreenshotApp {
 
     pub(crate) fn draw_annotations(&self, ui: &mut Ui) {
         let painter = ui.painter();
+        let mosaic_count = self.annotations.iter().filter(|a| a.tool == Tool::Mosaic).count();
+        let other_count = self.annotations.len() - mosaic_count;
+        if !self.annotations.is_empty() {
+            eprintln!("调试: draw_annotations 总数={}, 马赛克={}, 其他={}", self.annotations.len(), mosaic_count, other_count);
+        }
 
         for annotation in &self.annotations {
             if annotation.tool == Tool::Mosaic {
@@ -414,6 +419,9 @@ impl ScreenshotApp {
                     let height = rect.height();
                     let cols = (width / block_size).ceil() as usize;
                     let rows = (height / block_size).ceil() as usize;
+                    let tex = &self.screenshots[0];
+                    let mut drawn = 0;
+                    let mut skipped = 0;
                     for row in 0..rows {
                         for col in 0..cols {
                             let block_rect = Rect::from_min_size(
@@ -423,17 +431,23 @@ impl ScreenshotApp {
                                 ),
                                 Vec2::new(block_size, block_size)
                             );
-                            // 采样坐标需要乘以 screen_scale 转换为物理坐标
                             let sample_x = ((rect.min.x + col as f32 * block_size) * self.screen_scale) as u32;
                             let sample_y = ((rect.min.y + row as f32 * block_size) * self.screen_scale) as u32;
-                            let tex = &self.screenshots[0];
                             if sample_x < tex.width() && sample_y < tex.height() {
                                 let pixel = tex.get_pixel(sample_x, sample_y);
                                 let current_color = Color32::from_rgb(pixel[0], pixel[1], pixel[2]);
                                 painter.rect_filled(block_rect, egui::CornerRadius::ZERO, current_color);
+                                drawn += 1;
+                            } else {
+                                skipped += 1;
                             }
                         }
                     }
+                    if skipped > 0 {
+                        eprintln!("调试: 预览马赛克 drawn={}, skipped={}, rect={:?}, tex={}x{}, screen_scale={}", drawn, skipped, rect, tex.width(), tex.height(), self.screen_scale);
+                    }
+                } else {
+                    eprintln!("调试: 预览马赛克跳过（points不足）, points={}", annotation.points.len());
                 }
             }
             Tool::Number => {

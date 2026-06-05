@@ -385,8 +385,12 @@ impl ScreenshotApp {
                 // 对于非文本工具，直接完成标注
                 if self.current_tool != Tool::Text {
                     let min_points = if annotation.tool == Tool::Mosaic { 1 } else { 2 };
+                    eprintln!("调试: 鼠标释放 tool={:?}, points={}, mouse_points={}, min_points={}", annotation.tool, annotation.points.len(), annotation.mouse_points.len(), min_points);
                     if annotation.points.len() >= min_points {
+                        eprintln!("调试: 保存标注到 annotations (当前总数: {})", self.annotations.len());
                         self.annotations.push(annotation.clone());
+                    } else {
+                        eprintln!("调试: 标注被丢弃（点数不足）");
                     }
                     self.current_annotation = None;
                 }
