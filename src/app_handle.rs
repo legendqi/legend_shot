@@ -121,10 +121,6 @@ impl ScreenshotApp {
     }
 
     pub fn copy_to_clipboard(&mut self) -> Result<(), String> {
-        eprintln!("=== GUI 模式: 开始复制到剪贴板 ===");
-        eprintln!("调试: selection_rect = {:?}", self.selection_rect);
-        eprintln!("调试: mouse_selection_rect = {:?}", self.mouse_selection_rect);
-
         if self.selection_rect.is_none() {
             return Err("请选择要复制的图片".to_string());
         }
@@ -137,8 +133,6 @@ impl ScreenshotApp {
         }
 
         if let Some(cropped_image) = self.crop_selection(self.selection_rect.unwrap(), &annotations) {
-            eprintln!("调试: 裁剪成功，图片尺寸: {}x{}", cropped_image.width(), cropped_image.height());
-
             let temp_dir_path = std::env::temp_dir();
             let now = chrono::Local::now();
             let filename = now.format("screenshot_%Y-%m-%d_%H-%M-%S.png").to_string();
@@ -174,7 +168,6 @@ impl ScreenshotApp {
                 (x, y, w, h)
             } else {
                 // mouse_selection_rect 无效，从 selection_rect 计算
-                eprintln!("调试: mouse_selection_rect 无效，从 selection_rect 计算");
                 let x = selection_rect.min.x as i32;
                 let y = selection_rect.min.y as i32;
                 let w = selection_rect.width() as i32;
@@ -183,15 +176,12 @@ impl ScreenshotApp {
             }
         } else {
             // mouse_selection_rect 为空，从 selection_rect 计算
-            eprintln!("调试: mouse_selection_rect 为空，从 selection_rect 计算");
             let x = selection_rect.min.x as i32;
             let y = selection_rect.min.y as i32;
             let w = selection_rect.width() as i32;
             let h = selection_rect.height() as i32;
             (x, y, w, h)
         };
-
-        eprintln!("调试: crop_selection 最终坐标 - x={}, y={}, width={}, height={}", x, y, width, height);
 
         // 查找包含选择区域的屏幕，使用原始分辨率截图
         for (screen, screenshot) in self.screens.iter().zip(&self.original_screenshots) {
@@ -273,7 +263,6 @@ impl ScreenshotApp {
         let background = image.clone();
         for annotation in annotations {
             if annotation.tool == Tool::Mosaic {
-                eprintln!("调试[导出]: 马赛克 mouse_points.first={:?}, last={:?}, total_points={}", annotation.mouse_points.first(), annotation.mouse_points.last(), annotation.mouse_points.len());
                 self.draw_single_annotation_to_image(image, annotation, &background);
             }
         }
@@ -715,10 +704,10 @@ impl ScreenshotApp {
 
     // 马赛克效果
     fn draw_mosaic(&self, image: &mut ImageBuffer<Rgba<u8>, Vec<u8>>, source: &ImageBuffer<Rgba<u8>, Vec<u8>>, rect: Rect, block_size: u32) {
-        let x1 = rect.min.x as u32;
-        let y1 = rect.min.y as u32;
-        let x2 = rect.max.x as u32;
-        let y2 = rect.max.y as u32;
+        let x1 = rect.min.x.max(0.0) as u32;
+        let y1 = rect.min.y.max(0.0) as u32;
+        let x2 = rect.max.x.max(0.0) as u32;
+        let y2 = rect.max.y.max(0.0) as u32;
 
         for block_y in (y1..y2).step_by(block_size as usize) {
             for block_x in (x1..x2).step_by(block_size as usize) {

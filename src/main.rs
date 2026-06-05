@@ -163,9 +163,6 @@ fn run_test_mode(region: &str, action: &str, output: Option<&str>) -> eframe::Re
         egui::vec2(width as f32, height as f32),
     ));
 
-    eprintln!("调试: mouse_selection_rect = {:?}", app.mouse_selection_rect);
-    eprintln!("调试: selection_rect = {:?}", app.selection_rect);
-
     // 执行操作
     match action {
         "copy" => {
