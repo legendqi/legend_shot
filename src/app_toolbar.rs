@@ -90,7 +90,14 @@ impl ScreenshotApp {
                                     Color32::WHITE,
                                 );
                                 if undo_response.clicked() {
-                                    self.annotations.pop();
+                                    if let Some(popped) = self.annotations.pop() {
+                                        if popped.tool == Tool::Number {
+                                            self.number_input = match self.number_input {
+                                                Some(n) if n > 1 => Some(n - 1),
+                                                _ => None,
+                                            };
+                                        }
+                                    }
                                 }
 
                                 // 操作： 复制，保存，退出

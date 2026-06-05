@@ -100,6 +100,44 @@ cargo build --release
 sudo cp target/release/legend_shot /usr/local/bin/
 ```
 
+### 交叉编译 (glibc)
+
+编译适用于 Ubuntu/Debian/Fedora 等主流发行版的 glibc 版本：
+
+```bash
+# 安装编译目标（如果跨架构）
+rustup target add x86_64-unknown-linux-gnu
+
+# 编译
+cargo build --release
+
+# 输出文件
+file target/release/legend_shot
+# ELF 64-bit LSB pie executable, x86-64, dynamically linked, interpreter /lib64/ld-linux-x86-64.so.2, stripped
+```
+
+### 交叉编译 (musl)
+
+使用 [cargo-zigbuild](https://github.com/rust-cross/cargo-zigbuild) 编译 musl 目标（适用于 Alpine Linux 等 musl 系统）：
+
+```bash
+# 安装 zig 和 cargo-zigbuild
+# 参考: https://ziglang.org/download/ 和 https://github.com/rust-cross/cargo-zigbuild
+pip install cargo-zigbuild
+rustup target add x86_64-unknown-linux-musl
+
+# 编译
+RUSTFLAGS="-C target-feature=-crt-static" \
+  PKG_CONFIG_ALLOW_CROSS=1 \
+  PKG_CONFIG_SYSROOT_DIR=/ \
+  cargo zigbuild --release --target=x86_64-unknown-linux-musl
+
+# 输出文件
+ls target/x86_64-unknown-linux-musl/release/legend_shot
+```
+
+> **注意**：musl 二进制需要目标机器安装 musl 运行时（`sudo apt install musl` 或 Alpine Linux 自带）。
+
 ### 配置快捷键
 
 #### GNOME (Ubuntu 默认)
