@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 mod ui;
+mod ocr;
 mod app_default;
 mod app_draw;
 mod app_toolbar;
