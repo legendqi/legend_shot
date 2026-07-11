@@ -5,6 +5,19 @@ use crate::ocr::OcrViewState;
 use eframe::App;
 use egui::Visuals;
 
+const OCR_WINDOW_SAVE_DELAY: Duration = Duration::from_millis(300);
+
+pub(crate) fn saved_position_is_visible(
+    state: crate::app_default::OcrWindowState,
+    monitor_size: egui::Vec2,
+) -> bool {
+    let (Some(x), Some(y)) = (state.x, state.y) else {
+        return false;
+    };
+    let window = egui::Rect::from_min_size(egui::pos2(x, y), egui::vec2(state.width, state.height));
+    window.intersects(egui::Rect::from_min_size(egui::Pos2::ZERO, monitor_size))
+}
+
 impl App for ScreenshotApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.poll_ocr(Instant::now());
@@ -15,8 +28,18 @@ impl App for ScreenshotApp {
         self.window_rect = ctx.viewport_rect();
 
         match self.app_view {
-            AppView::Capture => self.update_capture_view(ctx),
+            AppView::Capture => {
+                if self.ocr_window_configured {
+                    self.restore_capture_window(ctx);
+                }
+                self.update_capture_view(ctx);
+            }
             AppView::OcrResult => {
+                if !self.ocr_window_configured {
+                    self.configure_ocr_window(ctx);
+                } else {
+                    self.remember_ocr_window(ctx);
+                }
                 egui::CentralPanel::default().show(ctx, |ui| {
                     self.draw_ocr_result(ui, ctx);
                 });
@@ -31,6 +54,79 @@ impl App for ScreenshotApp {
 }
 
 impl ScreenshotApp {
+    fn configure_ocr_window(&mut self, ctx: &egui::Context) {
+        let state = self.config.ocr_window;
+        ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(false));
+        ctx.send_viewport_cmd(egui::ViewportCommand::Decorations(true));
+        ctx.send_viewport_cmd(egui::ViewportCommand::Resizable(true));
+        ctx.send_viewport_cmd(egui::ViewportCommand::EnableButtons {
+            close: true,
+            minimized: true,
+            maximize: true,
+        });
+        ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(
+            state.width.max(200.0),
+            state.height.max(200.0),
+        )));
+        ctx.send_viewport_cmd(egui::ViewportCommand::MinInnerSize(egui::vec2(
+            200.0, 200.0,
+        )));
+        let monitor_size = ctx.input(|input| input.viewport().monitor_size);
+        if let (Some(x), Some(y)) = (state.x, state.y)
+            && monitor_size.is_none_or(|size| saved_position_is_visible(state, size))
+        {
+            ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(egui::pos2(x, y)));
+        } else if let Some(command) = egui::ViewportCommand::center_on_screen(ctx) {
+            ctx.send_viewport_cmd(command);
+        }
+        self.ocr_window_configured = true;
+    }
+
+    fn remember_ocr_window(&mut self, ctx: &egui::Context) {
+        let next = ctx.input(|input| {
+            let viewport = input.viewport();
+            let inner = viewport.inner_rect?;
+            let outer = viewport.outer_rect?;
+            Some(crate::app_default::OcrWindowState {
+                x: Some(outer.min.x),
+                y: Some(outer.min.y),
+                width: inner.width(),
+                height: inner.height(),
+            })
+        });
+
+        if let Some(next) = next
+            && next.width >= 200.0
+            && next.height >= 200.0
+            && next != self.config.ocr_window
+            && self
+                .pending_ocr_window
+                .is_none_or(|(pending, _)| pending != next)
+        {
+            self.pending_ocr_window = Some((next, Instant::now()));
+        }
+
+        if let Some((pending, changed_at)) = self.pending_ocr_window
+            && Instant::now().duration_since(changed_at) >= OCR_WINDOW_SAVE_DELAY
+        {
+            self.config.ocr_window = pending;
+            self.pending_ocr_window = None;
+            self.save_config();
+        }
+    }
+
+    fn restore_capture_window(&mut self, ctx: &egui::Context) {
+        ctx.send_viewport_cmd(egui::ViewportCommand::Decorations(false));
+        ctx.send_viewport_cmd(egui::ViewportCommand::Resizable(false));
+        ctx.send_viewport_cmd(egui::ViewportCommand::EnableButtons {
+            close: false,
+            minimized: false,
+            maximize: false,
+        });
+        ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(true));
+        self.ocr_window_configured = false;
+    }
+
     fn update_capture_view(&mut self, ctx: &egui::Context) {
         if self.display_textures_split.is_empty() {
             self.screen_to_texture(ctx);

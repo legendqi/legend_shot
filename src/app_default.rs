@@ -10,9 +10,30 @@ use image::{GenericImageView, ImageBuffer, Rgba};
 use serde::{Deserialize, Serialize};
 use xcap::Monitor;
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+pub struct OcrWindowState {
+    pub x: Option<f32>,
+    pub y: Option<f32>,
+    pub width: f32,
+    pub height: f32,
+}
+
+impl Default for OcrWindowState {
+    fn default() -> Self {
+        Self {
+            x: None,
+            y: None,
+            width: 500.0,
+            height: 500.0,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AppConfig {
     pub last_save_dir: Option<PathBuf>,
+    #[serde(default)]
+    pub ocr_window: OcrWindowState,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -40,7 +61,10 @@ pub enum Tool {
 
 impl Tool {
     pub fn is_annotation_tool(self) -> bool {
-        matches!(self, Self::Pen | Self::Rectangle | Self::Arrow | Self::Text | Self::Number | Self::Mosaic)
+        matches!(
+            self,
+            Self::Pen | Self::Rectangle | Self::Arrow | Self::Text | Self::Number | Self::Mosaic
+        )
     }
 }
 
@@ -165,6 +189,8 @@ pub struct ScreenshotApp {
     pub ocr_session: OcrSession,
     pub ocr_worker: Option<OcrWorker>,
     pub ocr_capture_snapshot: Option<CaptureSnapshot>,
+    pub ocr_window_configured: bool,
+    pub pending_ocr_window: Option<(OcrWindowState, std::time::Instant)>,
 
     // 双击检测
     pub last_click_time: f64,
@@ -231,6 +257,8 @@ impl Default for ScreenshotApp {
             ocr_session: OcrSession::new(),
             ocr_worker: None,
             ocr_capture_snapshot: None,
+            ocr_window_configured: false,
+            pending_ocr_window: None,
             last_click_time: 0.0,
             last_click_pos: Pos2::ZERO,
         }
@@ -357,10 +385,52 @@ impl ScreenshotApp {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
-    use super::{ScreenshotApp, Tool};
+    use super::{AppConfig, OcrWindowState, ScreenshotApp, Tool};
+
+    #[test]
+    fn default_ocr_window_size_is_500_square() {
+        let state = OcrWindowState::default();
+
+        assert_eq!(state.width, 500.0);
+        assert_eq!(state.height, 500.0);
+        assert_eq!(state.x, None);
+        assert_eq!(state.y, None);
+    }
+
+    #[test]
+    fn old_config_without_ocr_window_state_remains_compatible() {
+        let config: AppConfig = serde_json::from_str(r#"{"last_save_dir":null}"#).unwrap();
+
+        assert_eq!(config.ocr_window.width, 500.0);
+        assert_eq!(config.ocr_window.height, 500.0);
+    }
+
+    #[test]
+    fn saved_window_position_must_intersect_current_monitor() {
+        let visible = OcrWindowState {
+            x: Some(100.0),
+            y: Some(100.0),
+            width: 500.0,
+            height: 500.0,
+        };
+        let hidden = OcrWindowState {
+            x: Some(2500.0),
+            y: Some(100.0),
+            width: 500.0,
+            height: 500.0,
+        };
+
+        assert!(crate::app::saved_position_is_visible(
+            visible,
+            egui::vec2(1920.0, 1080.0)
+        ));
+        assert!(!crate::app::saved_position_is_visible(
+            hidden,
+            egui::vec2(1920.0, 1080.0)
+        ));
+    }
 
     #[test]
     fn default_does_not_start_ocr_worker() {
