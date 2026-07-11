@@ -1,4 +1,8 @@
+use std::sync::mpsc;
+use std::thread;
 use std::time::{Duration, Instant};
+
+use image::RgbaImage;
 
 pub type OcrRequestId = u64;
 pub const OCR_TIMEOUT: Duration = Duration::from_secs(15);
@@ -27,9 +31,68 @@ pub enum OcrViewState {
     Cancelled,
 }
 
+pub struct OcrRequest {
+    pub request_id: OcrRequestId,
+    pub image: RgbaImage,
+}
+
 pub struct OcrResponse {
     pub request_id: OcrRequestId,
     pub result: Result<String, OcrErrorKind>,
+}
+
+pub trait OcrBackend: Send + 'static {
+    fn recognize(&mut self, image: RgbaImage) -> Result<String, OcrErrorKind>;
+}
+
+pub trait OcrBackendFactory: Send + 'static {
+    fn create(&mut self) -> Result<Box<dyn OcrBackend>, OcrErrorKind>;
+}
+
+pub struct OcrWorker {
+    pub request_tx: mpsc::Sender<OcrRequest>,
+    pub response_rx: mpsc::Receiver<OcrResponse>,
+}
+
+pub fn spawn_ocr_worker<F>(mut factory: F) -> OcrWorker
+where
+    F: OcrBackendFactory,
+{
+    let (request_tx, request_rx) = mpsc::channel::<OcrRequest>();
+    let (response_tx, response_rx) = mpsc::channel();
+
+    thread::spawn(move || {
+        let mut backend: Option<Box<dyn OcrBackend>> = None;
+
+        while let Ok(request) = request_rx.recv() {
+            let result = match backend.as_mut() {
+                Some(backend) => backend.recognize(request.image),
+                None => match factory.create() {
+                    Ok(mut created_backend) => {
+                        let result = created_backend.recognize(request.image);
+                        backend = Some(created_backend);
+                        result
+                    }
+                    Err(kind) => Err(kind),
+                },
+            };
+
+            if response_tx
+                .send(OcrResponse {
+                    request_id: request.request_id,
+                    result,
+                })
+                .is_err()
+            {
+                break;
+            }
+        }
+    });
+
+    OcrWorker {
+        request_tx,
+        response_rx,
+    }
 }
 
 pub struct OcrSession {
@@ -114,9 +177,16 @@ impl OcrSession {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::VecDeque;
+    use std::sync::{Arc, Mutex};
     use std::time::{Duration, Instant};
 
-    use super::{OCR_TIMEOUT, OcrErrorKind, OcrResponse, OcrSession, OcrViewState};
+    use image::RgbaImage;
+
+    use super::{
+        OCR_TIMEOUT, OcrBackend, OcrBackendFactory, OcrErrorKind, OcrRequest, OcrResponse,
+        OcrSession, OcrViewState, spawn_ocr_worker,
+    };
 
     #[test]
     fn error_messages_are_fixed() {
@@ -276,6 +346,147 @@ mod tests {
             request_id,
             result: Ok("已取消文本".to_string()),
         }));
+    }
+
+    #[test]
+    fn worker_reuses_backend_for_multiple_requests() {
+        let create_count = Arc::new(Mutex::new(0));
+        let recognize_count = Arc::new(Mutex::new(0));
+        let worker = spawn_ocr_worker(FakeFactory::new(
+            Arc::clone(&create_count),
+            Arc::clone(&recognize_count),
+            VecDeque::from([Ok(())]),
+            VecDeque::from([Ok("第一次"), Ok("第二次")]),
+        ));
+
+        send_request(&worker, 10);
+        send_request(&worker, 11);
+
+        assert_response(&worker, 10, Ok("第一次"));
+        assert_response(&worker, 11, Ok("第二次"));
+        assert_eq!(*create_count.lock().unwrap(), 1);
+        assert_eq!(*recognize_count.lock().unwrap(), 2);
+    }
+
+    #[test]
+    fn worker_retries_initialization_after_model_failure() {
+        let create_count = Arc::new(Mutex::new(0));
+        let recognize_count = Arc::new(Mutex::new(0));
+        let worker = spawn_ocr_worker(FakeFactory::new(
+            Arc::clone(&create_count),
+            Arc::clone(&recognize_count),
+            VecDeque::from([Err(OcrErrorKind::Model), Ok(())]),
+            VecDeque::from([Ok("重试成功")]),
+        ));
+
+        send_request(&worker, 20);
+        send_request(&worker, 21);
+
+        assert_response(&worker, 20, Err(OcrErrorKind::Model));
+        assert_response(&worker, 21, Ok("重试成功"));
+        assert_eq!(*create_count.lock().unwrap(), 2);
+        assert_eq!(*recognize_count.lock().unwrap(), 1);
+    }
+
+    #[test]
+    fn worker_keeps_loaded_backend_after_recognition_failure() {
+        let create_count = Arc::new(Mutex::new(0));
+        let recognize_count = Arc::new(Mutex::new(0));
+        let worker = spawn_ocr_worker(FakeFactory::new(
+            Arc::clone(&create_count),
+            Arc::clone(&recognize_count),
+            VecDeque::from([Ok(())]),
+            VecDeque::from([Err(OcrErrorKind::Recognition), Ok("恢复成功")]),
+        ));
+
+        send_request(&worker, 30);
+        send_request(&worker, 31);
+
+        assert_response(&worker, 30, Err(OcrErrorKind::Recognition));
+        assert_response(&worker, 31, Ok("恢复成功"));
+        assert_eq!(*create_count.lock().unwrap(), 1);
+        assert_eq!(*recognize_count.lock().unwrap(), 2);
+    }
+
+    struct FakeFactory {
+        create_count: Arc<Mutex<usize>>,
+        recognize_count: Arc<Mutex<usize>>,
+        create_results: VecDeque<Result<(), OcrErrorKind>>,
+        recognize_results: Arc<Mutex<VecDeque<Result<&'static str, OcrErrorKind>>>>,
+    }
+
+    impl FakeFactory {
+        fn new(
+            create_count: Arc<Mutex<usize>>,
+            recognize_count: Arc<Mutex<usize>>,
+            create_results: VecDeque<Result<(), OcrErrorKind>>,
+            recognize_results: VecDeque<Result<&'static str, OcrErrorKind>>,
+        ) -> Self {
+            Self {
+                create_count,
+                recognize_count,
+                create_results,
+                recognize_results: Arc::new(Mutex::new(recognize_results)),
+            }
+        }
+    }
+
+    impl OcrBackendFactory for FakeFactory {
+        fn create(&mut self) -> Result<Box<dyn OcrBackend>, OcrErrorKind> {
+            *self.create_count.lock().unwrap() += 1;
+            self.create_results.pop_front().unwrap().map(|()| {
+                Box::new(FakeBackend {
+                    recognize_count: Arc::clone(&self.recognize_count),
+                    recognize_results: Arc::clone(&self.recognize_results),
+                }) as Box<dyn OcrBackend>
+            })
+        }
+    }
+
+    struct FakeBackend {
+        recognize_count: Arc<Mutex<usize>>,
+        recognize_results: Arc<Mutex<VecDeque<Result<&'static str, OcrErrorKind>>>>,
+    }
+
+    impl OcrBackend for FakeBackend {
+        fn recognize(&mut self, _image: RgbaImage) -> Result<String, OcrErrorKind> {
+            *self.recognize_count.lock().unwrap() += 1;
+            self.recognize_results
+                .lock()
+                .unwrap()
+                .pop_front()
+                .unwrap()
+                .map(str::to_string)
+        }
+    }
+
+    fn send_request(worker: &super::OcrWorker, request_id: super::OcrRequestId) {
+        worker
+            .request_tx
+            .send(OcrRequest {
+                request_id,
+                image: RgbaImage::new(1, 1),
+            })
+            .unwrap();
+    }
+
+    fn assert_response(
+        worker: &super::OcrWorker,
+        request_id: super::OcrRequestId,
+        expected: Result<&str, OcrErrorKind>,
+    ) {
+        let response = worker
+            .response_rx
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap();
+        assert_eq!(response.request_id, request_id);
+        match (response.result, expected) {
+            (Ok(actual), Ok(expected)) => assert_eq!(actual, expected),
+            (Err(actual), Err(expected)) => {
+                assert!(std::mem::discriminant(&actual) == std::mem::discriminant(&expected));
+            }
+            _ => panic!("response result did not match expectation"),
+        }
     }
 
     fn session_with_old_text() -> OcrSession {
