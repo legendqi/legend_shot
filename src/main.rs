@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 mod ui;
 mod ocr;
+mod ocr_oar;
 mod app_default;
 mod app_draw;
 mod app_toolbar;
