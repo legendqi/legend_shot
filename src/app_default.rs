@@ -32,9 +32,16 @@ pub enum Tool {
     Number,
     Mosaic,
     ColorPicker,
+    Ocr,
     Save,
     Copy,
     Exit,
+}
+
+impl Tool {
+    pub fn is_annotation_tool(self) -> bool {
+        matches!(self, Self::Pen | Self::Rectangle | Self::Arrow | Self::Text | Self::Number | Self::Mosaic)
+    }
 }
 
 #[derive(Clone)]
@@ -347,5 +354,17 @@ impl ScreenshotApp {
             Pos2::new(min_x as f32, min_y as f32),
             Pos2::new(max_x as f32, max_y as f32),
         )
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::Tool;
+
+    #[test]
+    fn ocr_is_an_action_not_an_annotation_tool() {
+        assert!(!Tool::Ocr.is_annotation_tool());
+        assert!(Tool::Pen.is_annotation_tool());
     }
 }

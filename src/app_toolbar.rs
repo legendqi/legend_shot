@@ -1,16 +1,17 @@
 use std::io::Write;
+use std::time::Instant;
 use eframe::emath::{Pos2, Rect, Vec2};
 use eframe::epaint::{Color32, Hsva, Shape, Stroke, StrokeKind};
 use egui::{color_picker, text_selection, Button, Id, Popup, PopupCloseBehavior, Response, Ui, ViewportId};
 use egui::color_picker::color_picker_hsva_2d;
 use crate::app_default::{Annotation, AppSignal, ScreenshotApp, Tool};
-use crate::ui::{load_texture_from_png, ARROW_ICON, COPY_ICON, EXIT_ICON, MOSAIC_ICON, MOVE_ICON, NUMBER_ICON, PEN_ICON, RECTANGLE_ICON, SAVE_ICON, WORD_ICON, UNDO_ICON};
+use crate::ui::{load_texture_from_png, ocr_button, ARROW_ICON, COPY_ICON, EXIT_ICON, MOSAIC_ICON, MOVE_ICON, NUMBER_ICON, PEN_ICON, RECTANGLE_ICON, SAVE_ICON, WORD_ICON, UNDO_ICON};
 
 impl ScreenshotApp {
     pub(crate) fn draw_toolbar(&mut self, ctx: &egui::Context) {
         self.tool_bar_focused = false;
         if let Some(selection_rect) = self.selection_rect {
-            let toolbar_size = Vec2::new(380.0, 40.0);
+            let toolbar_size = Vec2::new(500.0, 40.0);
             // 计算工具栏位置：在选择框右下角，并与选择框右对齐
             let mut toolbar_pos = Pos2::new(
                 selection_rect.min.x, // 左对齐：工具栏左侧与选择框左侧对齐
@@ -100,7 +101,18 @@ impl ScreenshotApp {
                                     }
                                 }
 
-                                // 操作： 复制，保存，退出
+                                // 操作： OCR，复制，保存，退出
+                                let ocr_response = ocr_button(ui);
+                                if ocr_response.hovered() || ocr_response.has_focus() {
+                                    self.tool_bar_focused = true;
+                                }
+                                if ocr_response.clicked() {
+                                    self.current_tool = Tool::Ocr;
+                                    if let Err(error) = self.submit_ocr_for_current_selection(Instant::now()) {
+                                        eprintln!("OCR 提交失败: {error}");
+                                    }
+                                }
+
                                 if self.purple_icon_button(ui, Tool::Copy, ctx, COPY_ICON, "copy").clicked() {
                                     if !self.selection_rect.unwrap().contains(self.toolbar_position) {
                                         let _ = self.copy_to_clipboard();

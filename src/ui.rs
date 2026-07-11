@@ -1,6 +1,6 @@
 use eframe::emath::{Pos2, Rect};
 use eframe::epaint::textures::TextureOptions;
-use egui::{Color32, Vec2};
+use egui::{Button, Color32, Response, Ui, Vec2};
 use image::{ImageBuffer, Rgba};
 use xcap::Monitor;
 use crate::app_default::MAX_TEXTURE_SIZE;
@@ -16,6 +16,11 @@ pub const RECTANGLE_ICON : &[u8] = include_bytes!("icon/rectangle.png");
 pub const SAVE_ICON : &[u8] = include_bytes!("icon/save.png");
 pub const WORD_ICON : &[u8] = include_bytes!("icon/word.png");
 pub const UNDO_ICON : &[u8] = include_bytes!("icon/undo.png");
+
+pub fn ocr_button(ui: &mut Ui) -> Response {
+    ui.add_sized(Vec2::new(42.0, 30.0), Button::new("OCR").frame(false))
+        .on_hover_text("识别选区文字")
+}
 
 pub fn get_screen_rect(screen: &Monitor) -> Rect {
     Rect::from_min_size(

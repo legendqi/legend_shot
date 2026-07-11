@@ -182,7 +182,7 @@ impl ScreenshotApp {
                     self.original_selection_rect = self.selection_rect;
                     self.mouse_original_selection_rect = self.mouse_selection_rect;
                 }
-            } else if self.current_tool != Tool::Select && self.current_tool != Tool::MoveBox {
+            } else if self.current_tool.is_annotation_tool() {
                 // 检查是否在选择区域内才允许开始标注
                 if let Some(selection_rect) = self.selection_rect {
                     if selection_rect.contains(pointer_pos) {
