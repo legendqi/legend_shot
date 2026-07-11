@@ -149,7 +149,17 @@ impl ScreenshotApp {
         }
 
         let result = self.submit_ocr_for_current_selection(now);
-        self.ocr_capture_snapshot = None;
+        if result.is_ok() {
+            self.ocr_capture_snapshot = None;
+        } else {
+            if let Some(snapshot) = self.ocr_capture_snapshot.take() {
+                self.selection_rect = snapshot.selection_rect;
+                self.mouse_selection_rect = snapshot.mouse_selection_rect;
+                self.annotations = snapshot.annotations;
+            }
+            self.ocr_session.cancel_capture();
+            self.app_view = AppView::OcrResult;
+        }
         result
     }
 
@@ -278,16 +288,45 @@ mod tests {
     }
 
     #[test]
-    fn failed_recapture_submission_clears_stale_snapshot() {
+    fn failed_recapture_submission_restores_snapshot_and_old_result() {
         let mut app = ScreenshotApp::default();
+        let old_selection = egui::Rect::from_min_max(
+            egui::pos2(10.0, 20.0),
+            egui::pos2(30.0, 40.0),
+        );
+        let old_mouse_selection = crate::app_default::MouseSelectionRect {
+            start: (10, 20),
+            end: (30, 40),
+        };
+        let old_annotation = crate::app_default::Annotation {
+            tool: crate::app_default::Tool::Pen,
+            points: vec![egui::pos2(12.0, 22.0), egui::pos2(18.0, 28.0)],
+            mouse_points: vec![(12, 22), (18, 28)],
+            color: egui::Color32::RED,
+            stroke_width: 3.0,
+            text: String::new(),
+            number: None,
+        };
+        app.ocr_session.text = "旧文本".to_string();
         app.ocr_session.state = OcrViewState::Capturing;
+        app.app_view = AppView::Capture;
         app.ocr_capture_snapshot = Some(CaptureSnapshot {
-            selection_rect: None,
-            mouse_selection_rect: None,
-            annotations: Vec::new(),
+            selection_rect: Some(old_selection),
+            mouse_selection_rect: Some(old_mouse_selection),
+            annotations: vec![old_annotation],
         });
 
         assert!(app.finish_ocr_recapture(Instant::now()).is_err());
+
+        assert!(matches!(app.ocr_session.state, OcrViewState::Result));
+        assert_eq!(app.ocr_session.text, "旧文本");
+        assert_eq!(app.app_view, AppView::OcrResult);
+        assert_eq!(app.selection_rect, Some(old_selection));
+        let restored_mouse_selection = app.mouse_selection_rect.expect("mouse selection restored");
+        assert_eq!(restored_mouse_selection.start, old_mouse_selection.start);
+        assert_eq!(restored_mouse_selection.end, old_mouse_selection.end);
+        assert_eq!(app.annotations.len(), 1);
+        assert_eq!(app.annotations[0].tool, crate::app_default::Tool::Pen);
         assert!(app.ocr_capture_snapshot.is_none());
     }
 }

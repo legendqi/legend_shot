@@ -129,6 +129,10 @@ fn load_cjk_font() -> Option<Vec<u8>> {
     None
 }
 
+fn new_test_mode_app() -> ScreenshotApp {
+    ScreenshotApp::default()
+}
+
 /// 自动测试模式: 直接截图并保存/复制到剪贴板
 fn run_test_mode(region: &str, action: &str, output: Option<&str>) -> eframe::Result<()> {
     // 解析区域参数
@@ -151,7 +155,7 @@ fn run_test_mode(region: &str, action: &str, output: Option<&str>) -> eframe::Re
     eprintln!("自动测试模式: 区域=({},{},{},{})", x, y, width, height);
 
     // 初始化应用并捕获屏幕
-    let mut app = ScreenshotApp::default();
+    let mut app = new_test_mode_app();
     if let Err(e) = app.capture_screens() {
         eprintln!("错误: 无法捕获屏幕 - {}", e);
         std::process::exit(1);
@@ -221,4 +225,16 @@ fn run_test_mode(region: &str, action: &str, output: Option<&str>) -> eframe::Re
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::new_test_mode_app;
+
+    #[test]
+    fn test_mode_constructor_uses_default_without_ocr_worker() {
+        let app = new_test_mode_app();
+
+        assert!(app.ocr_worker.is_none());
+    }
 }

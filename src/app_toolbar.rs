@@ -11,11 +11,19 @@ fn is_persistent_toolbar_tool(tool: Tool) -> bool {
     tool.is_annotation_tool() || matches!(tool, Tool::MoveBox | Tool::ColorPicker)
 }
 
+fn toolbar_width(item_spacing: f32) -> f32 {
+    const ITEM_COUNT: f32 = 13.0;
+    const CONTENT_WIDTH: f32 = 7.0 * 30.0 + 30.0 + 30.0 + 42.0 + 3.0 * 30.0;
+    const HORIZONTAL_MARGIN: f32 = 20.0;
+
+    CONTENT_WIDTH + (ITEM_COUNT - 1.0) * item_spacing + HORIZONTAL_MARGIN
+}
+
 impl ScreenshotApp {
     pub(crate) fn draw_toolbar(&mut self, ctx: &egui::Context) {
         self.tool_bar_focused = false;
         if let Some(selection_rect) = self.selection_rect {
-            let toolbar_size = Vec2::new(500.0, 40.0);
+            let toolbar_size = Vec2::new(toolbar_width(ctx.style().spacing.item_spacing.x), 40.0);
             // 计算工具栏位置：在选择框右下角，并与选择框右对齐
             let mut toolbar_pos = Pos2::new(
                 selection_rect.min.x, // 左对齐：工具栏左侧与选择框左侧对齐
@@ -487,8 +495,18 @@ impl ScreenshotApp {
 
 #[cfg(test)]
 mod tests {
-    use super::is_persistent_toolbar_tool;
+    use super::{is_persistent_toolbar_tool, toolbar_width};
     use crate::app_default::Tool;
+
+    #[test]
+    fn toolbar_width_covers_all_items_spacing_and_margin() {
+        let default_item_spacing = egui::Style::default().spacing.item_spacing.x;
+        let item_count = 13.0;
+        let content_width = 7.0 * 30.0 + 30.0 + 30.0 + 42.0 + 3.0 * 30.0;
+        let required_width = content_width + (item_count - 1.0) * default_item_spacing + 20.0;
+
+        assert!(toolbar_width(default_item_spacing) >= required_width);
+    }
 
     #[test]
     fn annotation_and_move_tools_are_persistent_toolbar_tools() {

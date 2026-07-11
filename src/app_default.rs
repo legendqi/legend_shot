@@ -360,7 +360,14 @@ impl ScreenshotApp {
 
 #[cfg(test)]
 mod tests {
-    use super::Tool;
+    use super::{ScreenshotApp, Tool};
+
+    #[test]
+    fn default_does_not_start_ocr_worker() {
+        let app = ScreenshotApp::default();
+
+        assert!(app.ocr_worker.is_none());
+    }
 
     #[test]
     fn ocr_is_an_action_not_an_annotation_tool() {
