@@ -4,7 +4,6 @@ use image::{GenericImageView, RgbaImage};
 
 use crate::app_default::{AppView, CaptureSnapshot, ScreenshotApp};
 use crate::ocr::{OcrRequest, OcrViewState};
-use crate::ui::get_screen_rect;
 
 pub fn crop_rgba_region(
     source: &RgbaImage,
@@ -26,27 +25,51 @@ pub fn crop_rgba_region(
     Some(source.view(x, y, width, height).to_image())
 }
 
+pub fn crop_region_for_global_selection(
+    monitor: (i32, i32, u32, u32),
+    selection_start: (i32, i32),
+    selection_end: (i32, i32),
+) -> Option<(u32, u32, u32, u32)> {
+    let global_x = selection_start.0.min(selection_end.0);
+    let global_y = selection_start.1.min(selection_end.1);
+    let width = (selection_end.0 - selection_start.0).unsigned_abs();
+    let height = (selection_end.1 - selection_start.1).unsigned_abs();
+    if width == 0 || height == 0 {
+        return None;
+    }
+
+    let local_x = global_x.checked_sub(monitor.0)?;
+    let local_y = global_y.checked_sub(monitor.1)?;
+    let local_x = u32::try_from(local_x).ok()?;
+    let local_y = u32::try_from(local_y).ok()?;
+    let end_x = local_x.checked_add(width)?;
+    let end_y = local_y.checked_add(height)?;
+    if end_x > monitor.2 || end_y > monitor.3 {
+        return None;
+    }
+
+    Some((local_x, local_y, width, height))
+}
+
 impl ScreenshotApp {
     pub fn crop_selection_for_ocr(&self) -> Option<RgbaImage> {
-        let selection_rect = self.selection_rect?;
         let mouse_selection = self.mouse_selection_rect?;
-        let global_x = mouse_selection.start.0.min(mouse_selection.end.0);
-        let global_y = mouse_selection.start.1.min(mouse_selection.end.1);
-        let width = (mouse_selection.end.0 - mouse_selection.start.0).unsigned_abs();
-        let height = (mouse_selection.end.1 - mouse_selection.start.1).unsigned_abs();
 
         self.screens
             .iter()
             .zip(&self.original_screenshots)
             .find_map(|(screen, screenshot)| {
-                let screen_rect = get_screen_rect(screen);
-                if !screen_rect.contains(selection_rect.center()) {
-                    return None;
-                }
-
-                let local_x = global_x.checked_sub(screen.x().ok()?)? as u32;
-                let local_y = global_y.checked_sub(screen.y().ok()?)? as u32;
-                crop_rgba_region(screenshot, local_x, local_y, width, height)
+                let crop = crop_region_for_global_selection(
+                    (
+                        screen.x().ok()?,
+                        screen.y().ok()?,
+                        screen.width().ok()?,
+                        screen.height().ok()?,
+                    ),
+                    mouse_selection.start,
+                    mouse_selection.end,
+                )?;
+                crop_rgba_region(screenshot, crop.0, crop.1, crop.2, crop.3)
             })
     }
 
@@ -137,7 +160,31 @@ impl ScreenshotApp {
 mod tests {
     use image::{ImageBuffer, Rgba};
 
-    use super::crop_rgba_region;
+    use super::{crop_region_for_global_selection, crop_rgba_region};
+
+    #[test]
+    fn global_selection_uses_negative_monitor_origin_for_local_crop() {
+        let crop = crop_region_for_global_selection((-1920, -200, 1920, 1080), (-1820, -150), (-1780, -120))
+            .expect("selection is inside the negative-origin monitor");
+
+        assert_eq!(crop, (100, 50, 40, 30));
+    }
+
+    #[test]
+    fn global_selection_ignores_hidpi_egui_coordinates_when_locating_monitor() {
+        let monitors = [(0, 0, 2560, 1440), (2560, 0, 3840, 2160)];
+        let selection = ((3000, 300), (3200, 500));
+
+        let located = monitors
+            .iter()
+            .enumerate()
+            .find_map(|(index, &monitor)| {
+                crop_region_for_global_selection(monitor, selection.0, selection.1)
+                    .map(|crop| (index, crop))
+            });
+
+        assert_eq!(located, Some((1, (440, 300, 200, 200))));
+    }
 
     #[test]
     fn crop_rgba_region_crops_expected_pixels() {
