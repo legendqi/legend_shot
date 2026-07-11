@@ -53,14 +53,15 @@ fn main() -> eframe::Result<()> {
     // 所有平台在窗口显示前截图，避免截图包含遮罩层
     let _ = app.capture_screens();
 
+    let capture_style = crate::app::capture_window_style();
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_fullscreen(true)
-            .with_fullsize_content_view(true)
-            .with_decorations(false)
-            .with_maximize_button(false)
-            .with_minimize_button(false)
-            .with_close_button(false)
+            .with_decorations(capture_style.decorations)
+            .with_resizable(capture_style.resizable)
+            .with_maximize_button(capture_style.maximize_button)
+            .with_minimize_button(capture_style.minimize_button)
+            .with_close_button(capture_style.close_button)
             .with_visible(false)
             .with_transparent(true),
         ..Default::default()

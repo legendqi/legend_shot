@@ -7,6 +7,25 @@ use egui::Visuals;
 
 const OCR_WINDOW_SAVE_DELAY: Duration = Duration::from_millis(300);
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct CaptureWindowStyle {
+    pub decorations: bool,
+    pub resizable: bool,
+    pub close_button: bool,
+    pub minimize_button: bool,
+    pub maximize_button: bool,
+}
+
+pub(crate) fn capture_window_style() -> CaptureWindowStyle {
+    CaptureWindowStyle {
+        decorations: true,
+        resizable: true,
+        close_button: true,
+        minimize_button: true,
+        maximize_button: true,
+    }
+}
+
 pub(crate) fn saved_position_is_visible(
     state: crate::app_default::OcrWindowState,
     monitor_size: egui::Vec2,
@@ -128,12 +147,13 @@ impl ScreenshotApp {
     }
 
     fn restore_capture_window(&mut self, ctx: &egui::Context) {
-        ctx.send_viewport_cmd(egui::ViewportCommand::Decorations(false));
-        ctx.send_viewport_cmd(egui::ViewportCommand::Resizable(false));
+        let style = capture_window_style();
+        ctx.send_viewport_cmd(egui::ViewportCommand::Decorations(style.decorations));
+        ctx.send_viewport_cmd(egui::ViewportCommand::Resizable(style.resizable));
         ctx.send_viewport_cmd(egui::ViewportCommand::EnableButtons {
-            close: false,
-            minimized: false,
-            maximize: false,
+            close: style.close_button,
+            minimized: style.minimize_button,
+            maximize: style.maximize_button,
         });
         ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(true));
         self.ocr_window_configured = false;

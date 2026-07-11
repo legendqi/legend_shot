@@ -440,6 +440,17 @@ mod tests {
     }
 
     #[test]
+    fn capture_window_keeps_native_frame_available_for_ocr_result() {
+        let style = crate::app::capture_window_style();
+
+        assert!(style.decorations);
+        assert!(style.resizable);
+        assert!(style.close_button);
+        assert!(style.minimize_button);
+        assert!(style.maximize_button);
+    }
+
+    #[test]
     fn default_does_not_start_ocr_worker() {
         let app = ScreenshotApp::default();
 
