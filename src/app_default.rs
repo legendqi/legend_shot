@@ -433,6 +433,13 @@ mod tests {
     }
 
     #[test]
+    fn ocr_window_geometry_waits_until_fullscreen_has_exited() {
+        assert!(!crate::app::ocr_window_geometry_can_be_applied(Some(true)));
+        assert!(crate::app::ocr_window_geometry_can_be_applied(Some(false)));
+        assert!(!crate::app::ocr_window_geometry_can_be_applied(None));
+    }
+
+    #[test]
     fn default_does_not_start_ocr_worker() {
         let app = ScreenshotApp::default();
 

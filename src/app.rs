@@ -18,6 +18,10 @@ pub(crate) fn saved_position_is_visible(
     window.intersects(egui::Rect::from_min_size(egui::Pos2::ZERO, monitor_size))
 }
 
+pub(crate) fn ocr_window_geometry_can_be_applied(fullscreen: Option<bool>) -> bool {
+    fullscreen == Some(false)
+}
+
 impl App for ScreenshotApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.poll_ocr(Instant::now());
@@ -57,6 +61,7 @@ impl ScreenshotApp {
     fn configure_ocr_window(&mut self, ctx: &egui::Context) {
         let state = self.config.ocr_window;
         ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(false));
+        ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(false));
         ctx.send_viewport_cmd(egui::ViewportCommand::Decorations(true));
         ctx.send_viewport_cmd(egui::ViewportCommand::Resizable(true));
         ctx.send_viewport_cmd(egui::ViewportCommand::EnableButtons {
@@ -64,6 +69,13 @@ impl ScreenshotApp {
             minimized: true,
             maximize: true,
         });
+
+        let fullscreen = ctx.input(|input| input.viewport().fullscreen);
+        if !ocr_window_geometry_can_be_applied(fullscreen) {
+            ctx.request_repaint();
+            return;
+        }
+
         ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(
             state.width.max(200.0),
             state.height.max(200.0),
