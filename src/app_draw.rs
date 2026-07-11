@@ -2,6 +2,7 @@ use device_query::{DeviceQuery, MousePosition};
 use eframe::emath::{Pos2, Rect};
 use eframe::epaint::{Color32, Shape, Stroke, StrokeKind};
 use crate::app_default::{Annotation, MAX_TEXTURE_SIZE, MouseSelectionRect, ScreenshotApp, TextInputState, Tool};
+use crate::ocr::OcrViewState;
 
 impl ScreenshotApp {
     pub(crate) fn draw_screens(&mut self, ui: &mut egui::Ui) {
@@ -372,8 +373,16 @@ impl ScreenshotApp {
                 self.update_selection_rect();
                 if let Some(rect) = self.selection_rect {
                     if rect.area() > 100.0 { // 最小区域阈值
-                        self.show_toolbar = true;
-                        self.update_toolbar_position(rect);
+                        if matches!(self.ocr_session.state, OcrViewState::Capturing)
+                            && self.ocr_capture_snapshot.is_some()
+                        {
+                            if let Err(error) = self.finish_ocr_recapture(std::time::Instant::now()) {
+                                eprintln!("OCR 重新截图提交失败: {error}");
+                            }
+                        } else {
+                            self.show_toolbar = true;
+                            self.update_toolbar_position(rect);
+                        }
                     }
                 }
             } else if self.is_moving_box && self.current_tool == Tool::MoveBox {
@@ -400,6 +409,12 @@ impl ScreenshotApp {
 
         // ESC 键退出
         if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+            if matches!(self.ocr_session.state, OcrViewState::Capturing)
+                && self.ocr_capture_snapshot.is_some()
+            {
+                self.cancel_ocr_recapture();
+                return;
+            }
             if let Some(text_state) = &mut self.text_input {
                 if text_state.is_active {
                     self.text_input = None;

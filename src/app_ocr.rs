@@ -106,7 +106,11 @@ impl ScreenshotApp {
         changed
     }
 
-    pub fn begin_ocr_recapture(&mut self) {
+    pub fn begin_ocr_recapture(&mut self) -> bool {
+        if matches!(self.ocr_session.state, OcrViewState::Recognizing) {
+            return false;
+        }
+
         self.ocr_capture_snapshot = Some(CaptureSnapshot {
             selection_rect: self.selection_rect,
             mouse_selection_rect: self.mouse_selection_rect,
@@ -119,9 +123,16 @@ impl ScreenshotApp {
         self.annotations.clear();
         self.current_annotation = None;
         self.show_toolbar = false;
+        true
     }
 
-    pub fn cancel_ocr_recapture(&mut self) {
+    pub fn cancel_ocr_recapture(&mut self) -> bool {
+        if !matches!(self.ocr_session.state, OcrViewState::Capturing)
+            || self.ocr_capture_snapshot.is_none()
+        {
+            return false;
+        }
+
         if let Some(snapshot) = self.ocr_capture_snapshot.take() {
             self.selection_rect = snapshot.selection_rect;
             self.mouse_selection_rect = snapshot.mouse_selection_rect;
@@ -129,10 +140,17 @@ impl ScreenshotApp {
         }
         self.ocr_session.cancel_capture();
         self.app_view = AppView::OcrResult;
+        true
     }
 
     pub fn finish_ocr_recapture(&mut self, now: Instant) -> Result<(), String> {
-        self.submit_ocr_for_current_selection(now)
+        if !matches!(self.ocr_session.state, OcrViewState::Capturing) {
+            return Err("当前不在 OCR 重新截图状态".to_string());
+        }
+
+        let result = self.submit_ocr_for_current_selection(now);
+        self.ocr_capture_snapshot = None;
+        result
     }
 
     pub fn copy_ocr_text(&self, ctx: &egui::Context) -> Result<(), String> {
@@ -147,16 +165,26 @@ impl ScreenshotApp {
         Ok(())
     }
 
-    pub fn close_ocr_result(&mut self) {
+    pub fn close_ocr_result(&mut self) -> bool {
+        if matches!(self.ocr_session.state, OcrViewState::Recognizing) {
+            return false;
+        }
+
         self.ocr_session.cancel();
         self.ocr_capture_snapshot = None;
         self.app_view = AppView::Capture;
+        true
     }
 }
 
 #[cfg(test)]
 mod tests {
     use image::{ImageBuffer, Rgba};
+
+    use std::time::Instant;
+
+    use crate::app_default::{AppView, CaptureSnapshot, ScreenshotApp};
+    use crate::ocr::{OcrViewState, OCR_TIMEOUT};
 
     use super::{crop_region_for_global_selection, crop_rgba_region};
 
@@ -206,5 +234,60 @@ mod tests {
 
         assert!(crop_rgba_region(&source, 0, 0, 0, 1).is_none());
         assert!(crop_rgba_region(&source, 0, 0, 1, 0).is_none());
+    }
+
+    #[test]
+    fn recognizing_defensively_rejects_recapture_and_close() {
+        let now = Instant::now();
+        let mut app = ScreenshotApp::default();
+        let request_id = app.ocr_session.submit(now);
+        app.app_view = AppView::OcrResult;
+
+        assert!(!app.begin_ocr_recapture());
+        assert!(!app.close_ocr_result());
+
+        assert!(matches!(app.ocr_session.state, OcrViewState::Recognizing));
+        assert_eq!(app.ocr_session.active_request_id, Some(request_id));
+        assert_eq!(app.ocr_session.deadline, Some(now + OCR_TIMEOUT));
+        assert_eq!(app.app_view, AppView::OcrResult);
+        assert!(app.ocr_capture_snapshot.is_none());
+    }
+
+    #[test]
+    fn cancel_recapture_restores_snapshot_and_old_result() {
+        let mut app = ScreenshotApp::default();
+        app.ocr_session.text = "旧文本".to_string();
+        app.ocr_session.state = OcrViewState::Capturing;
+        app.app_view = AppView::Capture;
+        app.ocr_capture_snapshot = Some(CaptureSnapshot {
+            selection_rect: Some(egui::Rect::from_min_max(
+                egui::pos2(10.0, 20.0),
+                egui::pos2(30.0, 40.0),
+            )),
+            mouse_selection_rect: None,
+            annotations: Vec::new(),
+        });
+
+        assert!(app.cancel_ocr_recapture());
+
+        assert!(matches!(app.ocr_session.state, OcrViewState::Result));
+        assert_eq!(app.ocr_session.text, "旧文本");
+        assert_eq!(app.app_view, AppView::OcrResult);
+        assert!(app.selection_rect.is_some());
+        assert!(app.ocr_capture_snapshot.is_none());
+    }
+
+    #[test]
+    fn failed_recapture_submission_clears_stale_snapshot() {
+        let mut app = ScreenshotApp::default();
+        app.ocr_session.state = OcrViewState::Capturing;
+        app.ocr_capture_snapshot = Some(CaptureSnapshot {
+            selection_rect: None,
+            mouse_selection_rect: None,
+            annotations: Vec::new(),
+        });
+
+        assert!(app.finish_ocr_recapture(Instant::now()).is_err());
+        assert!(app.ocr_capture_snapshot.is_none());
     }
 }

@@ -310,6 +310,25 @@ mod tests {
     }
 
     #[test]
+    fn recapture_submission_uses_new_id_and_discards_previous_response() {
+        let now = Instant::now();
+        let mut session = session_with_old_text();
+        let old_request_id = session.submit(now);
+
+        session.begin_capture();
+        let new_request_id = session.submit(now + Duration::from_secs(1));
+
+        assert_ne!(new_request_id, old_request_id);
+        assert!(!session.apply_response(OcrResponse {
+            request_id: old_request_id,
+            result: Ok("迟到旧文本".to_string()),
+        }));
+        assert_eq!(session.text, "旧文本");
+        assert!(matches!(session.state, OcrViewState::Recognizing));
+        assert_eq!(session.active_request_id, Some(new_request_id));
+    }
+
+    #[test]
     fn recapture_cancel_restores_result_and_keeps_old_text() {
         let now = Instant::now();
         let mut session = session_with_old_text();
