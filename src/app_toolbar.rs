@@ -7,6 +7,10 @@ use egui::color_picker::color_picker_hsva_2d;
 use crate::app_default::{Annotation, AppSignal, ScreenshotApp, Tool};
 use crate::ui::{load_texture_from_png, ocr_button, ARROW_ICON, COPY_ICON, EXIT_ICON, MOSAIC_ICON, MOVE_ICON, NUMBER_ICON, PEN_ICON, RECTANGLE_ICON, SAVE_ICON, WORD_ICON, UNDO_ICON};
 
+fn is_persistent_toolbar_tool(tool: Tool) -> bool {
+    tool.is_annotation_tool() || matches!(tool, Tool::MoveBox | Tool::ColorPicker)
+}
+
 impl ScreenshotApp {
     pub(crate) fn draw_toolbar(&mut self, ctx: &egui::Context) {
         self.tool_bar_focused = false;
@@ -107,7 +111,6 @@ impl ScreenshotApp {
                                     self.tool_bar_focused = true;
                                 }
                                 if ocr_response.clicked() {
-                                    self.current_tool = Tool::Ocr;
                                     if let Err(error) = self.submit_ocr_for_current_selection(Instant::now()) {
                                         eprintln!("OCR 提交失败: {error}");
                                     }
@@ -219,7 +222,7 @@ impl ScreenshotApp {
         let is_hovered_or_focused = response.hovered() || response.has_focus();
 
         // 设置按钮填充颜色
-        if selected && tool != Tool::Copy && tool != Tool::Save && tool != Tool::Exit {
+        if selected && is_persistent_toolbar_tool(tool) {
             ui.painter().circle_filled(
                 response.rect.center(),
                 response.rect.width() / 2.0, // 圆角为0
@@ -479,5 +482,26 @@ impl ScreenshotApp {
             }
             _ => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_persistent_toolbar_tool;
+    use crate::app_default::Tool;
+
+    #[test]
+    fn annotation_and_move_tools_are_persistent_toolbar_tools() {
+        assert!(is_persistent_toolbar_tool(Tool::Pen));
+        assert!(is_persistent_toolbar_tool(Tool::MoveBox));
+        assert!(is_persistent_toolbar_tool(Tool::ColorPicker));
+    }
+
+    #[test]
+    fn ocr_and_other_actions_are_not_persistent_toolbar_tools() {
+        assert!(!is_persistent_toolbar_tool(Tool::Ocr));
+        assert!(!is_persistent_toolbar_tool(Tool::Copy));
+        assert!(!is_persistent_toolbar_tool(Tool::Save));
+        assert!(!is_persistent_toolbar_tool(Tool::Exit));
     }
 }
