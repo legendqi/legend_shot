@@ -191,6 +191,7 @@ pub struct ScreenshotApp {
     pub ocr_capture_snapshot: Option<CaptureSnapshot>,
     pub ocr_window_configured: bool,
     pub pending_ocr_window: Option<(OcrWindowState, std::time::Instant)>,
+    pub ocr_copied_until: Option<std::time::Instant>,
 
     // 双击检测
     pub last_click_time: f64,
@@ -259,6 +260,7 @@ impl Default for ScreenshotApp {
             ocr_capture_snapshot: None,
             ocr_window_configured: false,
             pending_ocr_window: None,
+            ocr_copied_until: None,
             last_click_time: 0.0,
             last_click_pos: Pos2::ZERO,
         }

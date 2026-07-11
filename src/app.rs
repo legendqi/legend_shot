@@ -6,6 +6,7 @@ use eframe::App;
 use egui::Visuals;
 
 const OCR_WINDOW_SAVE_DELAY: Duration = Duration::from_millis(300);
+const OCR_WINDOW_MIN_SIZE: egui::Vec2 = egui::vec2(440.0, 320.0);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct CaptureWindowStyle {
@@ -96,12 +97,10 @@ impl ScreenshotApp {
         }
 
         ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(
-            state.width.max(200.0),
-            state.height.max(200.0),
+            state.width.max(OCR_WINDOW_MIN_SIZE.x),
+            state.height.max(OCR_WINDOW_MIN_SIZE.y),
         )));
-        ctx.send_viewport_cmd(egui::ViewportCommand::MinInnerSize(egui::vec2(
-            200.0, 200.0,
-        )));
+        ctx.send_viewport_cmd(egui::ViewportCommand::MinInnerSize(OCR_WINDOW_MIN_SIZE));
         let monitor_size = ctx.input(|input| input.viewport().monitor_size);
         if let (Some(x), Some(y)) = (state.x, state.y)
             && monitor_size.is_none_or(|size| saved_position_is_visible(state, size))
@@ -127,8 +126,8 @@ impl ScreenshotApp {
         });
 
         if let Some(next) = next
-            && next.width >= 200.0
-            && next.height >= 200.0
+            && next.width >= OCR_WINDOW_MIN_SIZE.x
+            && next.height >= OCR_WINDOW_MIN_SIZE.y
             && next != self.config.ocr_window
             && self
                 .pending_ocr_window
@@ -209,5 +208,15 @@ impl ScreenshotApp {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::OCR_WINDOW_MIN_SIZE;
+
+    #[test]
+    fn ocr_window_minimum_size_supports_modern_layout() {
+        assert_eq!(OCR_WINDOW_MIN_SIZE, egui::vec2(440.0, 320.0));
     }
 }
