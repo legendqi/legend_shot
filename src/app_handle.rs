@@ -1,16 +1,16 @@
-use std::io::Write;
+use crate::app_default::{Annotation, MAX_TEXTURE_SIZE, MouseSelectionRect, ScreenshotApp, Tool};
+use crate::app_ocr::crop_rgba_region;
+use crate::ui::{draw_simple_char, get_screen_rect};
 #[cfg(not(target_os = "linux"))]
 use arboard::Clipboard;
 use device_query::MousePosition;
 use eframe::emath::{Pos2, Rect};
 use egui::Color32;
 use image::{ImageBuffer, Rgba};
-use crate::app_default::{Annotation, MouseSelectionRect, ScreenshotApp, Tool, MAX_TEXTURE_SIZE};
-use crate::ui::{draw_simple_char, get_screen_rect};
+use std::io::Write;
 
 #[allow(dead_code)]
 impl ScreenshotApp {
-
     #[allow(dead_code)]
     pub fn xcap_capture_region(&mut self) -> Result<ImageBuffer<Rgba<u8>, Vec<u8>>, String> {
         let window_image = self.screens[0].capture_image().map_err(|e| e.to_string())?;
@@ -19,15 +19,20 @@ impl ScreenshotApp {
         if image_width > MAX_TEXTURE_SIZE as u32 || image_height > MAX_TEXTURE_SIZE as u32 {
             x = ((self.mouse_start.0.min(self.mouse_end.0) as f32) * self.screen_scale) as i32;
             y = ((self.mouse_start.1.min(self.mouse_end.1) as f32) * self.screen_scale) as i32;
-            width = ((self.mouse_end.0 - self.mouse_start.0).abs() as f32 * self.screen_scale) as i32;
-            height = ((self.mouse_end.1 - self.mouse_start.1).abs() as f32 * self.screen_scale) as i32;
+            width =
+                ((self.mouse_end.0 - self.mouse_start.0).abs() as f32 * self.screen_scale) as i32;
+            height =
+                ((self.mouse_end.1 - self.mouse_start.1).abs() as f32 * self.screen_scale) as i32;
         } else {
             x = ((self.mouse_start.0.min(self.mouse_end.0) as f32) * self.image_scale) as i32;
             y = ((self.mouse_start.1.min(self.mouse_end.1) as f32) * self.image_scale) as i32;
-            width = ((self.mouse_end.0 - self.mouse_start.0).abs() as f32 * self.image_scale) as i32;
-            height = ((self.mouse_end.1 - self.mouse_start.1).abs() as f32 * self.image_scale) as i32;
+            width =
+                ((self.mouse_end.0 - self.mouse_start.0).abs() as f32 * self.image_scale) as i32;
+            height =
+                ((self.mouse_end.1 - self.mouse_start.1).abs() as f32 * self.image_scale) as i32;
         }
-        let mut cropped_image: ImageBuffer<Rgba<u8>, Vec<u8>> = ImageBuffer::new(width as u32, height as u32);
+        let mut cropped_image: ImageBuffer<Rgba<u8>, Vec<u8>> =
+            ImageBuffer::new(width as u32, height as u32);
         // 复制原始截图内容
         for mut src_y in y..(y + height) {
             for mut src_x in x..(x + width) {
@@ -36,7 +41,11 @@ impl ScreenshotApp {
                 src_x = src_x.min(image_width as i32 - 1);
                 src_y = src_y.min(image_height as i32 - 1);
                 let pixel = window_image.get_pixel(src_x as u32, src_y as u32);
-                cropped_image.put_pixel(dst_x.try_into().unwrap(), dst_y.try_into().unwrap(), pixel.clone());
+                cropped_image.put_pixel(
+                    dst_x.try_into().unwrap(),
+                    dst_y.try_into().unwrap(),
+                    pixel.clone(),
+                );
             }
         }
         Ok(cropped_image)
@@ -50,7 +59,9 @@ impl ScreenshotApp {
             let temp_dir = std::env::temp_dir();
             let temp_file = temp_dir.join("legend_shot_clipboard.png");
 
-            image.save(&temp_file).map_err(|e| format!("保存临时文件失败: {}", e))?;
+            image
+                .save(&temp_file)
+                .map_err(|e| format!("保存临时文件失败: {}", e))?;
 
             // 使用 xclip 设置剪贴板
             let status = std::process::Command::new("xclip")
@@ -75,7 +86,9 @@ impl ScreenshotApp {
                 bytes: std::borrow::Cow::Owned(image.into_raw()),
             };
 
-            clipboard.set_image(img_data).map_err(|e| format!("设置剪贴板图片失败: {}", e))?;
+            clipboard
+                .set_image(img_data)
+                .map_err(|e| format!("设置剪贴板图片失败: {}", e))?;
         }
 
         Ok(())
@@ -93,7 +106,8 @@ impl ScreenshotApp {
             annotations.push(new_annotation);
         }
 
-        if let Some(cropped_image) = self.crop_selection(self.selection_rect.unwrap(), &annotations) {
+        if let Some(cropped_image) = self.crop_selection(self.selection_rect.unwrap(), &annotations)
+        {
             self.pending_save_image = Some(cropped_image);
 
             if let Some(ref dir) = self.config.last_save_dir {
@@ -104,7 +118,11 @@ impl ScreenshotApp {
         }
     }
 
-    pub fn save_image_to_path(&mut self, image: &ImageBuffer<Rgba<u8>, Vec<u8>>, path: &std::path::Path) {
+    pub fn save_image_to_path(
+        &mut self,
+        image: &ImageBuffer<Rgba<u8>, Vec<u8>>,
+        path: &std::path::Path,
+    ) {
         let format = match path.extension().and_then(|e| e.to_str()) {
             Some("jpg") | Some("jpeg") => image::ImageFormat::Jpeg,
             _ => image::ImageFormat::Png,
@@ -132,7 +150,8 @@ impl ScreenshotApp {
             annotations.push(new_annotation);
         }
 
-        if let Some(cropped_image) = self.crop_selection(self.selection_rect.unwrap(), &annotations) {
+        if let Some(cropped_image) = self.crop_selection(self.selection_rect.unwrap(), &annotations)
+        {
             let temp_dir_path = std::env::temp_dir();
             let now = chrono::Local::now();
             let filename = now.format("screenshot_%Y-%m-%d_%H-%M-%S.png").to_string();
@@ -156,7 +175,11 @@ impl ScreenshotApp {
         Ok(())
     }
 
-    fn crop_selection(&self, selection_rect: Rect, annotations: &Vec<Annotation>) -> Option<ImageBuffer<Rgba<u8>, Vec<u8>>> {
+    fn crop_selection(
+        &self,
+        selection_rect: Rect,
+        annotations: &Vec<Annotation>,
+    ) -> Option<ImageBuffer<Rgba<u8>, Vec<u8>>> {
         // 尝试从 mouse_selection_rect 获取坐标，如果无效则从 selection_rect 计算
         let (x, y, width, height) = if let Some(mouse_sel) = self.mouse_selection_rect {
             let w = (mouse_sel.end.0 - mouse_sel.start.0).abs();
@@ -189,7 +212,8 @@ impl ScreenshotApp {
 
             if screen_rect.contains(selection_rect.center()) {
                 if width > 0 && height > 0 {
-                    let mut cropped_image: ImageBuffer<Rgba<u8>, Vec<u8>> = ImageBuffer::new(width as u32, height as u32);
+                    let mut cropped_image: ImageBuffer<Rgba<u8>, Vec<u8>> =
+                        ImageBuffer::new(width as u32, height as u32);
 
                     // 复制原始截图内容
                     for src_y in y..(y + height) {
@@ -198,9 +222,11 @@ impl ScreenshotApp {
                             let dst_y = src_y - y;
 
                             // 边界检查
-                            if src_x >= 0 && src_y >= 0 &&
-                               src_x < screenshot.width() as i32 &&
-                               src_y < screenshot.height() as i32 {
+                            if src_x >= 0
+                                && src_y >= 0
+                                && src_x < screenshot.width() as i32
+                                && src_y < screenshot.height() as i32
+                            {
                                 let pixel = screenshot.get_pixel(src_x as u32, src_y as u32);
                                 cropped_image.put_pixel(dst_x as u32, dst_y as u32, pixel.clone());
                             }
@@ -236,30 +262,24 @@ impl ScreenshotApp {
             let screen_rect = get_screen_rect(screen);
 
             if screen_rect.contains(selection_rect.center()) {
-                let mut cropped_image: ImageBuffer<Rgba<u8>, Vec<u8>> = ImageBuffer::new(width as u32, height as u32);
-
-                for src_y in y..(y + height) {
-                    for src_x in x..(x + width) {
-                        let dst_x = src_x - x;
-                        let dst_y = src_y - y;
-
-                        if src_x >= 0 && src_y >= 0 &&
-                           src_x < screenshot.width() as i32 &&
-                           src_y < screenshot.height() as i32 {
-                            let pixel = screenshot.get_pixel(src_x as u32, src_y as u32);
-                            cropped_image.put_pixel(dst_x as u32, dst_y as u32, pixel.clone());
-                        }
-                    }
-                }
-
-                return Some(cropped_image);
+                return crop_rgba_region(
+                    screenshot,
+                    x.try_into().ok()?,
+                    y.try_into().ok()?,
+                    width.try_into().ok()?,
+                    height.try_into().ok()?,
+                );
             }
         }
 
         None
     }
 
-    fn add_annotations_to_image(&self, image: &mut ImageBuffer<Rgba<u8>, Vec<u8>>, annotations: &Vec<Annotation>) {
+    fn add_annotations_to_image(
+        &self,
+        image: &mut ImageBuffer<Rgba<u8>, Vec<u8>>,
+        annotations: &Vec<Annotation>,
+    ) {
         let background = image.clone();
         for annotation in annotations {
             if annotation.tool == Tool::Mosaic {
@@ -273,7 +293,12 @@ impl ScreenshotApp {
         }
     }
 
-    fn draw_single_annotation_to_image(&self, image: &mut ImageBuffer<Rgba<u8>, Vec<u8>>, annotation: &Annotation, mosaic_source: &ImageBuffer<Rgba<u8>, Vec<u8>>) {
+    fn draw_single_annotation_to_image(
+        &self,
+        image: &mut ImageBuffer<Rgba<u8>, Vec<u8>>,
+        annotation: &Annotation,
+        mosaic_source: &ImageBuffer<Rgba<u8>, Vec<u8>>,
+    ) {
         if annotation.mouse_points.is_empty() {
             return;
         }
@@ -300,40 +325,71 @@ impl ScreenshotApp {
             }
             Tool::Rectangle => {
                 // 绘制矩形 - 使用 mouse_points
-                if let (Some(&start), Some(&end)) = (annotation.mouse_points.first(), annotation.mouse_points.last()) {
+                if let (Some(&start), Some(&end)) = (
+                    annotation.mouse_points.first(),
+                    annotation.mouse_points.last(),
+                ) {
                     let start_rel = (start.0 - offset_x, start.1 - offset_y);
                     let end_rel = (end.0 - offset_x, end.1 - offset_y);
                     let rect_rel = Rect::from_two_pos(
                         Pos2::new(start_rel.0 as f32, start_rel.1 as f32),
-                        Pos2::new(end_rel.0 as f32, end_rel.1 as f32)
+                        Pos2::new(end_rel.0 as f32, end_rel.1 as f32),
                     );
 
                     // 绘制矩形边框
-                    for y in (rect_rel.min.y as usize)..((rect_rel.min.y + annotation.stroke_width) as usize) {
+                    for y in (rect_rel.min.y as usize)
+                        ..((rect_rel.min.y + annotation.stroke_width) as usize)
+                    {
                         for x in (rect_rel.min.x as usize)..((rect_rel.max.x) as usize) {
                             if x < image.width() as usize && y < image.height() as usize {
-                                image.put_pixel(x as u32, y as u32, Rgba([color.r(), color.g(), color.b(), color.a()]));
+                                image.put_pixel(
+                                    x as u32,
+                                    y as u32,
+                                    Rgba([color.r(), color.g(), color.b(), color.a()]),
+                                );
                             }
                         }
                     }
-                    for y in (rect_rel.max.y as usize)..((rect_rel.max.y + annotation.stroke_width) as usize) {
-                        for x in (rect_rel.min.x as usize)..((rect_rel.max.x + annotation.stroke_width) as usize) {
+                    for y in (rect_rel.max.y as usize)
+                        ..((rect_rel.max.y + annotation.stroke_width) as usize)
+                    {
+                        for x in (rect_rel.min.x as usize)
+                            ..((rect_rel.max.x + annotation.stroke_width) as usize)
+                        {
                             if x < image.width() as usize && y < image.height() as usize {
-                                image.put_pixel(x as u32, y as u32, Rgba([color.r(), color.g(), color.b(), color.a()]));
+                                image.put_pixel(
+                                    x as u32,
+                                    y as u32,
+                                    Rgba([color.r(), color.g(), color.b(), color.a()]),
+                                );
                             }
                         }
                     }
-                    for x in (rect_rel.min.x as usize)..((rect_rel.min.x + annotation.stroke_width) as usize) {
+                    for x in (rect_rel.min.x as usize)
+                        ..((rect_rel.min.x + annotation.stroke_width) as usize)
+                    {
                         for y in (rect_rel.min.y as usize)..((rect_rel.max.y) as usize) {
                             if x < image.width() as usize && y < image.height() as usize {
-                                image.put_pixel(x as u32, y as u32, Rgba([color.r(), color.g(), color.b(), color.a()]));
+                                image.put_pixel(
+                                    x as u32,
+                                    y as u32,
+                                    Rgba([color.r(), color.g(), color.b(), color.a()]),
+                                );
                             }
                         }
                     }
-                    for x in (rect_rel.max.x as usize)..((rect_rel.max.x + annotation.stroke_width) as usize) {
-                        for y in (rect_rel.min.y as usize)..((rect_rel.max.y + annotation.stroke_width) as usize) {
+                    for x in (rect_rel.max.x as usize)
+                        ..((rect_rel.max.x + annotation.stroke_width) as usize)
+                    {
+                        for y in (rect_rel.min.y as usize)
+                            ..((rect_rel.max.y + annotation.stroke_width) as usize)
+                        {
                             if x < image.width() as usize && y < image.height() as usize {
-                                image.put_pixel(x as u32, y as u32, Rgba([color.r(), color.g(), color.b(), color.a()]));
+                                image.put_pixel(
+                                    x as u32,
+                                    y as u32,
+                                    Rgba([color.r(), color.g(), color.b(), color.a()]),
+                                );
                             }
                         }
                     }
@@ -341,7 +397,10 @@ impl ScreenshotApp {
             }
             Tool::Arrow => {
                 // 绘制箭头 - 使用 mouse_points
-                if let (Some(&start), Some(&end)) = (annotation.mouse_points.first(), annotation.mouse_points.last()) {
+                if let (Some(&start), Some(&end)) = (
+                    annotation.mouse_points.first(),
+                    annotation.mouse_points.last(),
+                ) {
                     let start_rel = (start.0 - offset_x, start.1 - offset_y);
                     let end_rel = (end.0 - offset_x, end.1 - offset_y);
 
@@ -359,7 +418,7 @@ impl ScreenshotApp {
                 if let Some(&pos) = annotation.mouse_points.first() {
                     let pos_rel = Pos2::new(
                         (pos.0 - offset_x).max(0) as f32,
-                        (pos.1 - offset_y).max(0) as f32
+                        (pos.1 - offset_y).max(0) as f32,
                     );
 
                     if !annotation.text.is_empty() {
@@ -368,8 +427,12 @@ impl ScreenshotApp {
                 }
             }
             Tool::Mosaic => {
-                if let (Some(&start), Some(&end)) = (annotation.mouse_points.first(), annotation.mouse_points.last()) {
-                    let start_rel = Pos2::new((start.0 - offset_x) as f32, (start.1 - offset_y) as f32);
+                if let (Some(&start), Some(&end)) = (
+                    annotation.mouse_points.first(),
+                    annotation.mouse_points.last(),
+                ) {
+                    let start_rel =
+                        Pos2::new((start.0 - offset_x) as f32, (start.1 - offset_y) as f32);
                     let end_rel = Pos2::new((end.0 - offset_x) as f32, (end.1 - offset_y) as f32);
                     let rect_rel = Rect::from_two_pos(start_rel, end_rel);
                     self.draw_mosaic(image, mosaic_source, rect_rel, 4);
@@ -388,7 +451,14 @@ impl ScreenshotApp {
         }
     }
 
-    fn draw_smooth_line(&self, image: &mut ImageBuffer<Rgba<u8>, Vec<u8>>, start: MousePosition, end: MousePosition, color: Color32, annotation: &Annotation) {
+    fn draw_smooth_line(
+        &self,
+        image: &mut ImageBuffer<Rgba<u8>, Vec<u8>>,
+        start: MousePosition,
+        end: MousePosition,
+        color: Color32,
+        annotation: &Annotation,
+    ) {
         let mut x0 = start.0;
         let mut y0 = start.1;
         let x1 = end.0;
@@ -411,7 +481,8 @@ impl ScreenshotApp {
 
         loop {
             // 计算当前像素(x0, y0)到直线的距离
-            let dist = ((x1 - start.0) * (start.1 - y0) - (start.0 - x0) * (y1 - start.1)).abs() as f32;
+            let dist =
+                ((x1 - start.0) * (start.1 - y0) - (start.0 - x0) * (y1 - start.1)).abs() as f32;
             let normalized_dist = (dist / line_length).min(1.0); // 确保在[0,1]范围内
 
             // 计算alpha值，距离直线越近，alpha越大
@@ -425,14 +496,24 @@ impl ScreenshotApp {
                     if x >= 0 && x < image.width() as i32 && y >= 0 && y < image.height() as i32 {
                         // 获取当前像素的RGBA值
                         let current_pixel = image.get_pixel(x as u32, y as u32);
-                        let (_r, _g, _b, a) = (current_pixel[0], current_pixel[1], current_pixel[2], current_pixel[3]);
+                        let (_r, _g, _b, a) = (
+                            current_pixel[0],
+                            current_pixel[1],
+                            current_pixel[2],
+                            current_pixel[3],
+                        );
 
                         // 计算新的alpha值（考虑当前像素的alpha）
                         let alpha_ratio = alpha as f32 / 255.0;
-                        let new_alpha = (a as f32 * (1.0 - alpha_ratio) + alpha as f32).clamp(0.0, 255.0) as u8;
+                        let new_alpha =
+                            (a as f32 * (1.0 - alpha_ratio) + alpha as f32).clamp(0.0, 255.0) as u8;
 
                         // 设置新像素值
-                        image.put_pixel(x as u32, y as u32, Rgba([color.r(), color.g(), color.b(), new_alpha]));
+                        image.put_pixel(
+                            x as u32,
+                            y as u32,
+                            Rgba([color.r(), color.g(), color.b(), new_alpha]),
+                        );
                     }
                 }
             }
@@ -453,48 +534,90 @@ impl ScreenshotApp {
         }
     }
     // 画矩形框
-    fn draw_rectangle(&self, image: &mut ImageBuffer<Rgba<u8>, Vec<u8>>, annotation: &Annotation, mouse_selection_rect: MouseSelectionRect, color: Color32) {
-        if let (Some(&start), Some(&end)) = (annotation.mouse_points.first(), annotation.mouse_points.last()) {
-            let start_rel: MousePosition = (start.0 - mouse_selection_rect.start.0, start.1 - mouse_selection_rect.start.1);
-            let end_rel: MousePosition = (end.0 - mouse_selection_rect.start.0, end.1 - mouse_selection_rect.start.1);
+    fn draw_rectangle(
+        &self,
+        image: &mut ImageBuffer<Rgba<u8>, Vec<u8>>,
+        annotation: &Annotation,
+        mouse_selection_rect: MouseSelectionRect,
+        color: Color32,
+    ) {
+        if let (Some(&start), Some(&end)) = (
+            annotation.mouse_points.first(),
+            annotation.mouse_points.last(),
+        ) {
+            let start_rel: MousePosition = (
+                start.0 - mouse_selection_rect.start.0,
+                start.1 - mouse_selection_rect.start.1,
+            );
+            let end_rel: MousePosition = (
+                end.0 - mouse_selection_rect.start.0,
+                end.1 - mouse_selection_rect.start.1,
+            );
             let rect_rel = Rect::from_min_max(
                 Pos2::new(start_rel.0 as f32, start_rel.1 as f32),
-                Pos2::new(end_rel.0 as f32, end_rel.1 as f32)
+                Pos2::new(end_rel.0 as f32, end_rel.1 as f32),
             );
 
-
             // 顶边
-            for y in (rect_rel.min.y as usize)..((rect_rel.min.y + annotation.stroke_width) as usize) {
+            for y in
+                (rect_rel.min.y as usize)..((rect_rel.min.y + annotation.stroke_width) as usize)
+            {
                 for x in (rect_rel.min.x as usize)..((rect_rel.max.x) as usize) {
                     if x < image.width() as usize && y < image.height() as usize {
-                        image.put_pixel(x as u32, y as u32, Rgba([color.r(), color.g(), color.b(), color.a()]));
+                        image.put_pixel(
+                            x as u32,
+                            y as u32,
+                            Rgba([color.r(), color.g(), color.b(), color.a()]),
+                        );
                     }
                 }
             }
 
             // 低边
-            for y in (rect_rel.max.y as usize)..((rect_rel.max.y + annotation.stroke_width) as usize) {
-                for x in (rect_rel.min.x as usize)..((rect_rel.max.x + annotation.stroke_width) as usize) {
+            for y in
+                (rect_rel.max.y as usize)..((rect_rel.max.y + annotation.stroke_width) as usize)
+            {
+                for x in
+                    (rect_rel.min.x as usize)..((rect_rel.max.x + annotation.stroke_width) as usize)
+                {
                     if x < image.width() as usize && y < image.height() as usize {
-                        image.put_pixel(x as u32, y as u32, Rgba([color.r(), color.g(), color.b(), color.a()]));
+                        image.put_pixel(
+                            x as u32,
+                            y as u32,
+                            Rgba([color.r(), color.g(), color.b(), color.a()]),
+                        );
                     }
                 }
             }
 
             // 左边
-            for x in (rect_rel.min.x as usize)..((rect_rel.min.x + annotation.stroke_width) as usize) {
+            for x in
+                (rect_rel.min.x as usize)..((rect_rel.min.x + annotation.stroke_width) as usize)
+            {
                 for y in (rect_rel.min.y as usize)..((rect_rel.max.y) as usize) {
                     if x < image.width() as usize && y < image.height() as usize {
-                        image.put_pixel(x as u32, y as u32, Rgba([color.r(), color.g(), color.b(), color.a()]));
+                        image.put_pixel(
+                            x as u32,
+                            y as u32,
+                            Rgba([color.r(), color.g(), color.b(), color.a()]),
+                        );
                     }
                 }
             }
 
             // 右边
-            for x in (rect_rel.max.x as usize)..((rect_rel.max.x + annotation.stroke_width) as usize) {
-                for y in (rect_rel.min.y as usize)..((rect_rel.max.y + annotation.stroke_width) as usize) {
+            for x in
+                (rect_rel.max.x as usize)..((rect_rel.max.x + annotation.stroke_width) as usize)
+            {
+                for y in
+                    (rect_rel.min.y as usize)..((rect_rel.max.y + annotation.stroke_width) as usize)
+                {
                     if x < image.width() as usize && y < image.height() as usize {
-                        image.put_pixel(x as u32, y as u32, Rgba([color.r(), color.g(), color.b(), color.a()]));
+                        image.put_pixel(
+                            x as u32,
+                            y as u32,
+                            Rgba([color.r(), color.g(), color.b(), color.a()]),
+                        );
                     }
                 }
             }
@@ -502,7 +625,13 @@ impl ScreenshotApp {
     }
 
     // 修复箭头实心问题：绘制实心箭头
-    fn draw_filled_arrow_head(&self, image: &mut ImageBuffer<Rgba<u8>, Vec<u8>>, tip: Pos2, from: Pos2, color: Color32) {
+    fn draw_filled_arrow_head(
+        &self,
+        image: &mut ImageBuffer<Rgba<u8>, Vec<u8>>,
+        tip: Pos2,
+        from: Pos2,
+        color: Color32,
+    ) {
         let arrow_length = 15.0;
         let arrow_angle = std::f32::consts::PI / 6.0; // 30度
 
@@ -522,22 +651,25 @@ impl ScreenshotApp {
         let left_x = tip.x - arrow_length * (dir_x * arrow_angle.cos() - dir_y * arrow_angle.sin());
         let left_y = tip.y - arrow_length * (dir_x * arrow_angle.sin() + dir_y * arrow_angle.cos());
 
-        let right_x = tip.x - arrow_length * (dir_x * arrow_angle.cos() + dir_y * arrow_angle.sin());
-        let right_y = tip.y - arrow_length * (-dir_x * arrow_angle.sin() + dir_y * arrow_angle.cos());
+        let right_x =
+            tip.x - arrow_length * (dir_x * arrow_angle.cos() + dir_y * arrow_angle.sin());
+        let right_y =
+            tip.y - arrow_length * (-dir_x * arrow_angle.sin() + dir_y * arrow_angle.cos());
 
         // 创建三角形点
-        let points = [
-            (tip.x, tip.y),
-            (left_x, left_y),
-            (right_x, right_y)
-        ];
+        let points = [(tip.x, tip.y), (left_x, left_y), (right_x, right_y)];
 
         // 用Bresenham绘制三角形
         self.draw_filled_triangle(image, points, color);
     }
 
     // 绘制实心三角形（填充）
-    fn draw_filled_triangle(&self, image: &mut ImageBuffer<Rgba<u8>, Vec<u8>>, points: [(f32, f32); 3], color: Color32) {
+    fn draw_filled_triangle(
+        &self,
+        image: &mut ImageBuffer<Rgba<u8>, Vec<u8>>,
+        points: [(f32, f32); 3],
+        color: Color32,
+    ) {
         // 计算三角形边界
         let x_min = points.iter().map(|p| p.0).fold(f32::INFINITY, f32::min);
         let x_max = points.iter().map(|p| p.0).fold(f32::NEG_INFINITY, f32::max);
@@ -550,7 +682,11 @@ impl ScreenshotApp {
                 if self.point_in_triangle(x as f32, y as f32, points) {
                     // 确保在图像范围内
                     if x >= 0 && x < image.width() as i32 && y >= 0 && y < image.height() as i32 {
-                        image.put_pixel(x as u32, y as u32, Rgba([color.r(), color.g(), color.b(), color.a()]));
+                        image.put_pixel(
+                            x as u32,
+                            y as u32,
+                            Rgba([color.r(), color.g(), color.b(), color.a()]),
+                        );
                     }
                 }
             }
@@ -598,7 +734,13 @@ impl ScreenshotApp {
     }
 
     // 简单的文本绘制（使用位图字体或简单图形）
-    fn draw_text(&self, image: &mut ImageBuffer<Rgba<u8>, Vec<u8>>, pos: Pos2, text: &str, color: Color32) {
+    fn draw_text(
+        &self,
+        image: &mut ImageBuffer<Rgba<u8>, Vec<u8>>,
+        pos: Pos2,
+        text: &str,
+        color: Color32,
+    ) {
         // 这里可以使用位图字体库，或者简单的字符绘制
         // 示例：绘制简单的矩形文字背景和文字轮廓
         let x = pos.x as i32;
@@ -612,12 +754,20 @@ impl ScreenshotApp {
     }
 
     // 绘制序号（带圆圈的数字）
-    fn draw_number(&self, image: &mut ImageBuffer<Rgba<u8>, Vec<u8>>, pos: MousePosition, number: &str, color: Color32) {
+    fn draw_number(
+        &self,
+        image: &mut ImageBuffer<Rgba<u8>, Vec<u8>>,
+        pos: MousePosition,
+        number: &str,
+        color: Color32,
+    ) {
         let radius = 12;
 
         // 绘制圆形背景
         self.draw_circle(image, pos.0, pos.1, radius, color);
-        if let Some(first_char) = number.chars().next() && number.len() == 1 {
+        if let Some(first_char) = number.chars().next()
+            && number.len() == 1
+        {
             draw_simple_char(image, pos.0, pos.1, first_char, Color32::WHITE);
         } else {
             for (index, char) in number.chars().enumerate() {
@@ -626,14 +776,20 @@ impl ScreenshotApp {
                 } else {
                     draw_simple_char(image, pos.0 + 4, pos.1, char, Color32::WHITE);
                 }
-
             }
         }
     }
 
     // 绘制圆形
     // 绘制实心圆且带抗锯齿效果
-    fn draw_circle(&self, image: &mut ImageBuffer<Rgba<u8>, Vec<u8>>, center_x: i32, center_y: i32, radius: i32, color: Color32) {
+    fn draw_circle(
+        &self,
+        image: &mut ImageBuffer<Rgba<u8>, Vec<u8>>,
+        center_x: i32,
+        center_y: i32,
+        radius: i32,
+        color: Color32,
+    ) {
         let radius = radius as f32;
         let center_x = center_x as f32;
         let center_y = center_y as f32;
@@ -695,15 +851,22 @@ impl ScreenshotApp {
 
         if alpha_out > 0.0 {
             for i in 0..3 {
-                background[i] = ((foreground[i] as f32 * alpha_fg +
-                    background[i] as f32 * alpha_bg * (1.0 - alpha_fg)) / alpha_out) as u8;
+                background[i] = ((foreground[i] as f32 * alpha_fg
+                    + background[i] as f32 * alpha_bg * (1.0 - alpha_fg))
+                    / alpha_out) as u8;
             }
             background[3] = (alpha_out * 255.0) as u8;
         }
     }
 
     // 马赛克效果
-    fn draw_mosaic(&self, image: &mut ImageBuffer<Rgba<u8>, Vec<u8>>, source: &ImageBuffer<Rgba<u8>, Vec<u8>>, rect: Rect, block_size: u32) {
+    fn draw_mosaic(
+        &self,
+        image: &mut ImageBuffer<Rgba<u8>, Vec<u8>>,
+        source: &ImageBuffer<Rgba<u8>, Vec<u8>>,
+        rect: Rect,
+        block_size: u32,
+    ) {
         let x1 = rect.min.x.max(0.0) as u32;
         let y1 = rect.min.y.max(0.0) as u32;
         let x2 = rect.max.x.max(0.0) as u32;
@@ -746,5 +909,4 @@ impl ScreenshotApp {
             }
         }
     }
-
 }

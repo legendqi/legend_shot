@@ -1,16 +1,19 @@
 use crate::app_default::{AppConfig, ScreenshotApp};
+use crate::ocr::spawn_ocr_worker;
+use crate::ocr_oar::OarOcrFactory;
 use clap::Parser;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-mod ui;
-mod ocr;
-mod ocr_oar;
+mod app;
 mod app_default;
 mod app_draw;
-mod app_toolbar;
 mod app_handle;
-mod app;
+mod app_ocr;
+mod app_toolbar;
+mod ocr;
+mod ocr_oar;
+mod ui;
 
 /// Legend Shot - 截图工具
 #[derive(Parser, Debug)]
@@ -44,6 +47,7 @@ fn main() -> eframe::Result<()> {
 
     // 正常 GUI 模式
     let mut app = ScreenshotApp::with_config(config, config_path);
+    app.ocr_worker = Some(spawn_ocr_worker(OarOcrFactory::new()));
 
     // 所有平台在窗口显示前截图，避免截图包含遮罩层
     let _ = app.capture_screens();
@@ -127,7 +131,8 @@ fn load_cjk_font() -> Option<Vec<u8>> {
 /// 自动测试模式: 直接截图并保存/复制到剪贴板
 fn run_test_mode(region: &str, action: &str, output: Option<&str>) -> eframe::Result<()> {
     // 解析区域参数
-    let parts: Vec<i32> = region.split(',')
+    let parts: Vec<i32> = region
+        .split(',')
         .filter_map(|s| s.trim().parse().ok())
         .collect();
 

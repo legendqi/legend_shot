@@ -1,5 +1,5 @@
 use std::path::PathBuf;
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{Arc, Mutex, mpsc};
 
 use device_query::{DeviceState, MousePosition};
 use eframe::emath::{Pos2, Rect};
@@ -82,6 +82,21 @@ pub struct MouseSelectionRect {
     pub end: MousePosition,
 }
 
+use crate::ocr::{OcrSession, OcrWorker};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AppView {
+    Capture,
+    OcrResult,
+}
+
+#[derive(Clone)]
+pub struct CaptureSnapshot {
+    pub selection_rect: Option<Rect>,
+    pub mouse_selection_rect: Option<MouseSelectionRect>,
+    pub annotations: Vec<Annotation>,
+}
+
 pub struct ScreenshotApp {
     pub is_first: bool,
     pub screens: Vec<Monitor>,
@@ -137,6 +152,12 @@ pub struct ScreenshotApp {
     pub pending_save_image: Option<ImageBuffer<Rgba<u8>, Vec<u8>>>,
     pub config: AppConfig,
     pub config_path: PathBuf,
+
+    // OCR 状态
+    pub app_view: AppView,
+    pub ocr_session: OcrSession,
+    pub ocr_worker: Option<OcrWorker>,
+    pub ocr_capture_snapshot: Option<CaptureSnapshot>,
 
     // 双击检测
     pub last_click_time: f64,
@@ -199,6 +220,10 @@ impl Default for ScreenshotApp {
             pending_save_image: None,
             config: AppConfig::default(),
             config_path: PathBuf::new(),
+            app_view: AppView::Capture,
+            ocr_session: OcrSession::new(),
+            ocr_worker: None,
+            ocr_capture_snapshot: None,
             last_click_time: 0.0,
             last_click_pos: Pos2::ZERO,
         }
@@ -260,7 +285,8 @@ impl ScreenshotApp {
                         let tile_width = (width - x).min(MAX_TEXTURE_SIZE as u32);
                         let tile_height = (height - y).min(MAX_TEXTURE_SIZE as u32);
                         let tile = image.view(x, y, tile_width, tile_height).to_image();
-                        self.screenshots_positions.push((x as usize, y as usize, tile.clone()));
+                        self.screenshots_positions
+                            .push((x as usize, y as usize, tile.clone()));
                         self.screenshots.push(tile);
                     }
                 }
