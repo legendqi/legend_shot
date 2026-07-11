@@ -120,6 +120,7 @@ impl OcrSession {
     }
 
     pub fn cancel_capture(&mut self) {
+        self.invalidate_request();
         self.state = if self.text.is_empty() {
             OcrViewState::Cancelled
         } else {
@@ -347,6 +348,25 @@ mod tests {
             request_id,
             result: Ok("已失效文本".to_string()),
         }));
+    }
+
+    #[test]
+    fn cancel_capture_invalidates_active_request_even_without_begin_capture() {
+        let now = Instant::now();
+        let mut session = session_with_old_text();
+        let request_id = session.submit(now);
+        session.state = OcrViewState::Capturing;
+
+        session.cancel_capture();
+
+        assert!(matches!(session.state, OcrViewState::Result));
+        assert_eq!(session.active_request_id, None);
+        assert_eq!(session.deadline, None);
+        assert!(!session.apply_response(OcrResponse {
+            request_id,
+            result: Ok("已失效文本".to_string()),
+        }));
+        assert_eq!(session.text, "旧文本");
     }
 
     #[test]

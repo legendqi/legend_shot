@@ -5,6 +5,20 @@ use image::{GenericImageView, RgbaImage};
 use crate::app_default::{AppView, CaptureSnapshot, ScreenshotApp};
 use crate::ocr::{OcrRequest, OcrViewState};
 
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum OcrResultAction {
+    Ignore,
+    CloseViewport,
+}
+
+pub(crate) fn ocr_result_escape_action(state: &OcrViewState) -> OcrResultAction {
+    if matches!(state, OcrViewState::Recognizing) {
+        OcrResultAction::Ignore
+    } else {
+        OcrResultAction::CloseViewport
+    }
+}
+
 pub fn crop_rgba_region(
     source: &RgbaImage,
     x: u32,
@@ -77,6 +91,10 @@ impl ScreenshotApp {
         let image = self
             .crop_selection_for_ocr()
             .ok_or_else(|| "请选择要识别的图片".to_string())?;
+        self.submit_ocr_image(image, now)
+    }
+
+    fn submit_ocr_image(&mut self, image: RgbaImage, now: Instant) -> Result<(), String> {
         let worker = self
             .ocr_worker
             .as_ref()
@@ -88,7 +106,11 @@ impl ScreenshotApp {
             .send(OcrRequest { request_id, image })
             .is_err()
         {
-            self.ocr_session.cancel();
+            self.ocr_session.apply_response(crate::ocr::OcrResponse {
+                request_id,
+                result: Err(crate::ocr::OcrErrorKind::Recognition),
+            });
+            self.app_view = AppView::OcrResult;
             return Err("OCR 服务不可用".to_string());
         }
 
@@ -97,13 +119,13 @@ impl ScreenshotApp {
     }
 
     pub fn poll_ocr(&mut self, now: Instant) -> bool {
-        let mut changed = self.ocr_session.expire_if_needed(now);
+        let mut changed = false;
         if let Some(worker) = &self.ocr_worker {
             while let Ok(response) = worker.response_rx.try_recv() {
                 changed |= self.ocr_session.apply_response(response);
             }
         }
-        changed
+        changed | self.ocr_session.expire_if_needed(now)
     }
 
     pub fn begin_ocr_recapture(&mut self) -> bool {
@@ -182,21 +204,26 @@ impl ScreenshotApp {
 
         self.ocr_session.cancel();
         self.ocr_capture_snapshot = None;
-        self.app_view = AppView::Capture;
         true
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use image::{ImageBuffer, Rgba};
+    use image::{ImageBuffer, Rgba, RgbaImage};
+    use std::sync::mpsc;
 
     use std::time::Instant;
 
     use crate::app_default::{AppView, CaptureSnapshot, ScreenshotApp};
-    use crate::ocr::{OcrViewState, OCR_TIMEOUT};
+    use crate::ocr::{
+        OCR_TIMEOUT, OcrErrorKind, OcrResponse, OcrViewState, OcrWorker,
+    };
 
-    use super::{crop_region_for_global_selection, crop_rgba_region};
+    use super::{
+        OcrResultAction, crop_region_for_global_selection, crop_rgba_region,
+        ocr_result_escape_action,
+    };
 
     #[test]
     fn global_selection_uses_negative_monitor_origin_for_local_crop() {
@@ -264,6 +291,45 @@ mod tests {
     }
 
     #[test]
+    fn close_result_cleans_state_without_returning_to_capture() {
+        let mut app = ScreenshotApp::default();
+        app.ocr_session.text = "识别文本".to_string();
+        app.ocr_session.state = OcrViewState::Result;
+        app.app_view = AppView::OcrResult;
+        app.ocr_capture_snapshot = Some(CaptureSnapshot {
+            selection_rect: None,
+            mouse_selection_rect: None,
+            annotations: Vec::new(),
+        });
+
+        assert!(app.close_ocr_result());
+
+        assert!(matches!(app.ocr_session.state, OcrViewState::Cancelled));
+        assert_eq!(app.app_view, AppView::OcrResult);
+        assert!(app.ocr_capture_snapshot.is_none());
+    }
+
+    #[test]
+    fn ocr_result_escape_is_ignored_while_recognizing() {
+        assert_eq!(
+            ocr_result_escape_action(&OcrViewState::Recognizing),
+            OcrResultAction::Ignore
+        );
+    }
+
+    #[test]
+    fn ocr_result_escape_closes_viewport_when_not_recognizing() {
+        assert_eq!(
+            ocr_result_escape_action(&OcrViewState::Result),
+            OcrResultAction::CloseViewport
+        );
+        assert_eq!(
+            ocr_result_escape_action(&OcrViewState::Failed(crate::ocr::OcrErrorKind::Recognition)),
+            OcrResultAction::CloseViewport
+        );
+    }
+
+    #[test]
     fn cancel_recapture_restores_snapshot_and_old_result() {
         let mut app = ScreenshotApp::default();
         app.ocr_session.text = "旧文本".to_string();
@@ -285,6 +351,58 @@ mod tests {
         assert_eq!(app.app_view, AppView::OcrResult);
         assert!(app.selection_rect.is_some());
         assert!(app.ocr_capture_snapshot.is_none());
+    }
+
+    #[test]
+    fn queued_current_response_wins_over_deadline_timeout() {
+        let (_request_tx, request_rx) = mpsc::channel();
+        let (response_tx, response_rx) = mpsc::channel();
+        let mut app = ScreenshotApp::default();
+        app.ocr_worker = Some(OcrWorker {
+            request_tx: _request_tx,
+            response_rx,
+        });
+        app.ocr_session.text = "旧文本".to_string();
+        let now = Instant::now();
+        let request_id = app.ocr_session.submit(now);
+        response_tx
+            .send(OcrResponse {
+                request_id,
+                result: Ok("边界响应".to_string()),
+            })
+            .unwrap();
+
+        assert!(app.poll_ocr(now + OCR_TIMEOUT));
+
+        assert!(matches!(app.ocr_session.state, OcrViewState::Result));
+        assert_eq!(app.ocr_session.text, "边界响应");
+        assert_eq!(app.ocr_session.active_request_id, None);
+        drop(request_rx);
+    }
+
+    #[test]
+    fn disconnected_request_channel_shows_recognition_failure_and_keeps_old_text() {
+        let (request_tx, request_rx) = mpsc::channel();
+        drop(request_rx);
+        let (_response_tx, response_rx) = mpsc::channel();
+        let mut app = ScreenshotApp::default();
+        app.ocr_worker = Some(OcrWorker {
+            request_tx,
+            response_rx,
+        });
+        app.ocr_session.text = "旧文本".to_string();
+
+        let result = app.submit_ocr_image(RgbaImage::new(1, 1), Instant::now());
+
+        assert!(result.is_err());
+        assert!(matches!(
+            app.ocr_session.state,
+            OcrViewState::Failed(OcrErrorKind::Recognition)
+        ));
+        assert_eq!(app.ocr_session.text, "旧文本");
+        assert_eq!(app.app_view, AppView::OcrResult);
+        assert_eq!(app.ocr_session.active_request_id, None);
+        assert_eq!(app.ocr_session.deadline, None);
     }
 
     #[test]

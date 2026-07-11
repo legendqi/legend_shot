@@ -1,4 +1,5 @@
 use crate::app_default::ScreenshotApp;
+use crate::app_ocr::{OcrResultAction, ocr_result_escape_action};
 use crate::ocr::{OcrSession, OcrViewState};
 
 pub struct OcrViewModel {
@@ -78,9 +79,21 @@ impl ScreenshotApp {
                 .add_enabled(model.close_enabled, egui::Button::new("关闭"))
                 .clicked()
             {
-                self.close_ocr_result();
+                if self.close_ocr_result() {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                }
             }
         });
+
+        if ui.input(|input| input.key_pressed(egui::Key::Escape))
+            && matches!(
+                ocr_result_escape_action(&self.ocr_session.state),
+                OcrResultAction::CloseViewport
+            )
+            && self.close_ocr_result()
+        {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
     }
 }
 
