@@ -1,0 +1,4 @@
+{"type":"server-started","port":60446,"host":"127.0.0.1","url_host":"localhost","url":"http://localhost:60446/?key=2f5108d8d7ea7863661fb69e37c7dc2d175a4792d439c020b918979550cbe2d3","screen_dir":"/dd/workspace_rust/legend_shot/.superpowers/brainstorm/1004175-1783748887/content","state_dir":"/dd/workspace_rust/legend_shot/.superpowers/brainstorm/1004175-1783748887/state","idle_timeout_ms":14400000}
+{"type":"screen-added","file":"/dd/workspace_rust/legend_shot/.superpowers/brainstorm/1004175-1783748887/content/connected.html"}
+{"type":"screen-added","file":"/dd/workspace_rust/legend_shot/.superpowers/brainstorm/1004175-1783748887/content/waiting-ocr.html"}
+{"type":"server-stopped","reason":"idle timeout"}
