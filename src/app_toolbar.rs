@@ -13,7 +13,7 @@ fn is_persistent_toolbar_tool(tool: Tool) -> bool {
 
 fn toolbar_width(item_spacing: f32) -> f32 {
     const ITEM_COUNT: f32 = 13.0;
-    const CONTENT_WIDTH: f32 = 7.0 * 30.0 + 30.0 + 30.0 + 42.0 + 3.0 * 30.0;
+    const CONTENT_WIDTH: f32 = 7.0 * 30.0 + 30.0 + 30.0 + 30.0 + 3.0 * 30.0;
     const HORIZONTAL_MARGIN: f32 = 20.0;
 
     CONTENT_WIDTH + (ITEM_COUNT - 1.0) * item_spacing + HORIZONTAL_MARGIN
@@ -114,7 +114,7 @@ impl ScreenshotApp {
                                 }
 
                                 // 操作： OCR，复制，保存，退出
-                                let ocr_response = ocr_button(ui);
+                                let ocr_response = ocr_button(ui, ctx);
                                 if ocr_response.hovered() || ocr_response.has_focus() {
                                     self.tool_bar_focused = true;
                                 }
@@ -502,7 +502,7 @@ mod tests {
     fn toolbar_width_covers_all_items_spacing_and_margin() {
         let default_item_spacing = egui::Style::default().spacing.item_spacing.x;
         let item_count = 13.0;
-        let content_width = 7.0 * 30.0 + 30.0 + 30.0 + 42.0 + 3.0 * 30.0;
+        let content_width = 7.0 * 30.0 + 30.0 + 30.0 + 30.0 + 3.0 * 30.0;
         let required_width = content_width + (item_count - 1.0) * default_item_spacing + 20.0;
 
         assert!(toolbar_width(default_item_spacing) >= required_width);

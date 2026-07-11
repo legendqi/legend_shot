@@ -11,15 +11,49 @@ pub const EXIT_ICON : &[u8] = include_bytes!("icon/exit.png");
 pub const MOSAIC_ICON : &[u8] = include_bytes!("icon/mosaic.png");
 pub const MOVE_ICON : &[u8] = include_bytes!("icon/move.png");
 pub const NUMBER_ICON : &[u8] = include_bytes!("icon/number.png");
+pub const OCR_ICON : &[u8] = include_bytes!("icon/ocr.png");
 pub const  PEN_ICON : &[u8] = include_bytes!("icon/pen.png");
 pub const RECTANGLE_ICON : &[u8] = include_bytes!("icon/rectangle.png");
 pub const SAVE_ICON : &[u8] = include_bytes!("icon/save.png");
 pub const WORD_ICON : &[u8] = include_bytes!("icon/word.png");
 pub const UNDO_ICON : &[u8] = include_bytes!("icon/undo.png");
 
-pub fn ocr_button(ui: &mut Ui) -> Response {
-    ui.add_sized(Vec2::new(42.0, 30.0), Button::new("OCR").frame(false))
-        .on_hover_text("识别选区文字")
+pub fn ocr_button(ui: &mut Ui, ctx: &egui::Context) -> Response {
+    let icon = load_texture_from_png(ctx, OCR_ICON, "ocr").expect("embedded OCR icon is valid");
+    let button_size = Vec2::new(30.0, 30.0);
+    let response = ui.add_sized(button_size, Button::new("").frame(false));
+    let background = if response.hovered() || response.has_focus() {
+        Color32::BLUE
+    } else {
+        Color32::from_rgb(0, 100, 255)
+    };
+
+    ui.painter().circle_filled(
+        response.rect.center(),
+        response.rect.width() / 2.0,
+        background,
+    );
+    ui.painter().image(
+        icon,
+        Rect::from_center_size(response.rect.center(), Vec2::new(20.0, 20.0)),
+        Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+        Color32::WHITE,
+    );
+
+    response.on_hover_text("识别选区文字")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::OCR_ICON;
+
+    #[test]
+    fn ocr_toolbar_action_has_a_valid_png_icon() {
+        let icon = image::load_from_memory(OCR_ICON).expect("OCR icon should be a valid image");
+
+        assert_eq!(icon.width(), icon.height());
+        assert!(icon.width() >= 16);
+    }
 }
 
 pub fn get_screen_rect(screen: &Monitor) -> Rect {
