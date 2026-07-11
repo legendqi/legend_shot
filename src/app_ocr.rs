@@ -135,7 +135,7 @@ impl ScreenshotApp {
         self.submit_ocr_for_current_selection(now)
     }
 
-    pub fn copy_ocr_text(&self) -> Result<(), String> {
+    pub fn copy_ocr_text(&self, ctx: &egui::Context) -> Result<(), String> {
         if matches!(self.ocr_session.state, OcrViewState::Recognizing) {
             return Err("OCR 识别中，请稍候".to_string());
         }
@@ -143,10 +143,8 @@ impl ScreenshotApp {
             return Err("没有可复制的识别文本".to_string());
         }
 
-        let mut clipboard = arboard::Clipboard::new().map_err(|error| error.to_string())?;
-        clipboard
-            .set_text(self.ocr_session.text.clone())
-            .map_err(|error| error.to_string())
+        ctx.copy_text(self.ocr_session.text.clone());
+        Ok(())
     }
 
     pub fn close_ocr_result(&mut self) {
@@ -164,8 +162,12 @@ mod tests {
 
     #[test]
     fn global_selection_uses_negative_monitor_origin_for_local_crop() {
-        let crop = crop_region_for_global_selection((-1920, -200, 1920, 1080), (-1820, -150), (-1780, -120))
-            .expect("selection is inside the negative-origin monitor");
+        let crop = crop_region_for_global_selection(
+            (-1920, -200, 1920, 1080),
+            (-1820, -150),
+            (-1780, -120),
+        )
+        .expect("selection is inside the negative-origin monitor");
 
         assert_eq!(crop, (100, 50, 40, 30));
     }
@@ -175,13 +177,10 @@ mod tests {
         let monitors = [(0, 0, 2560, 1440), (2560, 0, 3840, 2160)];
         let selection = ((3000, 300), (3200, 500));
 
-        let located = monitors
-            .iter()
-            .enumerate()
-            .find_map(|(index, &monitor)| {
-                crop_region_for_global_selection(monitor, selection.0, selection.1)
-                    .map(|crop| (index, crop))
-            });
+        let located = monitors.iter().enumerate().find_map(|(index, &monitor)| {
+            crop_region_for_global_selection(monitor, selection.0, selection.1)
+                .map(|crop| (index, crop))
+        });
 
         assert_eq!(located, Some((1, (440, 300, 200, 200))));
     }

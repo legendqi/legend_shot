@@ -10,6 +10,7 @@ mod app_default;
 mod app_draw;
 mod app_handle;
 mod app_ocr;
+mod app_ocr_view;
 mod app_toolbar;
 mod ocr;
 mod ocr_oar;
