@@ -10,9 +10,22 @@ setup_targets() {
     rustup target add x86_64-apple-darwin
 }
 
+check_linux_tray_dependencies() {
+    if ! pkg-config --exists gtk+-3.0; then
+        echo "缺少 GTK3 开发包：Ubuntu 请安装 libgtk-3-dev"
+        return 1
+    fi
+    if ! pkg-config --exists ayatana-appindicator3-0.1 \
+        && ! pkg-config --exists appindicator3-0.1; then
+        echo "缺少 AppIndicator 开发包：Ubuntu 请安装 libayatana-appindicator3-dev 或 libappindicator3-dev"
+        return 1
+    fi
+}
+
 # 编译Linux AMD64版本
 build_linux_amd64() {
     echo "编译Linux AMD64版本..."
+    check_linux_tray_dependencies || return 1
     cargo build --release --target=x86_64-unknown-linux-gnu
     echo "输出文件: target/x86_64-unknown-linux-gnu/release/screenshot-linux-amd64"
 }
@@ -20,6 +33,7 @@ build_linux_amd64() {
 # 编译Linux ARM64版本
 build_linux_arm64() {
     echo "编译Linux ARM64版本..."
+    check_linux_tray_dependencies || return 1
     cargo build --release --target=aarch64-unknown-linux-gnu
     echo "输出文件: target/aarch64-unknown-linux-gnu/release/screenshot-linux-arm64"
 }

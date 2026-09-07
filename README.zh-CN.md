@@ -23,7 +23,7 @@
 
 ## Legend Shot 是什么？
 
-Legend Shot 是一款基于 Rust、`egui` 和 `xcap` 开发的桌面截图工具。启动后，它会在当前桌面上显示截图遮罩，允许用户框选区域，并通过紧凑的工具栏完成标注、OCR、复制和保存。
+Legend Shot 是一款基于 Rust、`egui` 和 `xcap` 开发的桌面截图工具。在 macOS 和 Linux 上，它启动后常驻顶部栏，选择“截图”时才显示截图遮罩；Windows 则沿用启动即截图。遮罩允许用户框选区域，并通过紧凑的工具栏完成标注、OCR、复制和保存。
 
 项目关注快速截图流程、原生分辨率输出、跨平台一致性和本地处理。OCR 所需模型准备完成后，识别过程在本地运行。
 
@@ -60,12 +60,14 @@ Legend Shot 目前处于持续开发阶段，当前软件包版本为 `0.1.0`，
 - Git，以及当前操作系统对应的原生 C/C++ 构建工具链。
 - 首次使用 OCR 且本地尚无 PP-OCRv5 模型时，需要网络连接下载模型资源。
 
-Linux 还需要 X11 桌面会话，并使用 `xclip` 支持图片剪贴板。建议安装 Noto CJK 字体：
+Linux 还需要 X11 桌面会话、GTK 3、`libxdo` 和 AppIndicator 实现。`xclip` 用于图片剪贴板，并建议安装 Noto CJK 字体：
 
 ```bash
 sudo apt update
-sudo apt install -y build-essential pkg-config xclip fonts-noto-cjk
+sudo apt install -y build-essential pkg-config xclip fonts-noto-cjk libgtk-3-dev libxdo-dev libayatana-appindicator3-dev
 ```
+
+如果系统没有 `libayatana-appindicator3-dev`，可改用 `libappindicator3-dev`。桌面会话必须提供 AppIndicator/StatusNotifier 支持；GNOME 环境可能需要启用 AppIndicator 扩展。
 
 ### 从源码运行
 
@@ -75,22 +77,23 @@ cd legend_shot
 cargo run
 ```
 
-在 macOS 上，请前往 **系统设置 → 隐私与安全性 → 屏幕与系统录音**，为 Legend Shot 授权；通过 `cargo run` 开发运行时，可能需要给终端应用授权。修改权限后请重新启动应用。
+在 macOS 上，首次选择“截图”时才会请求屏幕录制权限。请前往 **系统设置 → 隐私与安全性 → 屏幕与系统录音** 为 Legend Shot 授权；通过 `cargo run` 开发运行时，可能需要给终端应用授权。等待授权期间进程仍会驻留，授权后再次选择“截图”即可。
 
 <a id="使用方法"></a>
 
 ## 使用方法
 
-1. 启动 Legend Shot。
+1. 启动 Legend Shot。macOS/Linux 在顶部栏打开菜单并选择“截图”，菜单中另一个且唯一的选项是“退出”；Windows 会直接进入截图。
 2. 在屏幕上拖动鼠标，框选需要截图的区域。
 3. 使用工具栏添加标注、执行 OCR、复制或保存截图。
 4. 输入文字后，在 Windows/Linux 使用 `Ctrl+Enter` 完成，在 macOS 使用 `Command+Enter` 完成。
+5. macOS/Linux 在复制、保存或按 `Esc` 后返回托盘，只能通过托盘“退出”终止进程；Windows 完成或取消截图后退出。
 
 | 操作 | 功能 |
 | --- | --- |
 | 在遮罩上拖动 | 框选截图区域。 |
-| 双击选区内部 | 复制当前选区并关闭应用。 |
-| `Esc` | 取消当前操作或关闭截图遮罩。 |
+| 双击选区内部 | 复制当前选区；macOS/Linux 返回托盘，Windows 退出。 |
+| `Esc` | 取消当前操作；关闭最外层截图遮罩时，macOS/Linux 返回托盘，Windows 退出。 |
 | 移动 | 调整选区位置。 |
 | 画笔 / 矩形 / 箭头 | 添加图形标注。 |
 | 文字 | 使用系统输入法添加多语言文字。 |
@@ -102,6 +105,8 @@ cargo run
 ## 命令行测试模式
 
 Legend Shot 提供非交互式截图模式，便于开发和冒烟测试：
+
+`--test` 的生命周期保持不变，也不会创建托盘图标。
 
 ```bash
 # 截取指定区域并复制到剪贴板
@@ -147,9 +152,9 @@ cargo build --release
 
 | 平台 | 注意事项 |
 | --- | --- |
-| macOS | 需要“屏幕与系统录音”权限；从终端启动开发版本时，权限身份可能显示为终端。 |
-| Windows | 通过 `arboard` 使用原生剪贴板；中文渲染会优先使用系统中的微软雅黑或黑体。 |
-| Linux | 当前以 X11 为目标；复制 PNG 图片需要 `xclip`，多语言文字建议安装 Noto Sans CJK。 |
+| macOS | 启动后常驻菜单栏；首次执行截图时请求“屏幕与系统录音”权限，从终端启动开发版本时权限身份可能显示为终端。 |
+| Windows | 启动即截图，完成后退出；通过 `arboard` 使用原生剪贴板，中文渲染会优先使用系统中的微软雅黑或黑体。 |
+| Linux | 启动后常驻顶部栏，当前以 X11 为目标；桌面会话需支持 AppIndicator/StatusNotifier，复制 PNG 图片需要 `xclip`。 |
 
 ## OCR 与隐私
 
@@ -178,6 +183,7 @@ src/
 ├── app_ocr_view.rs   # OCR 结果界面
 ├── ocr.rs            # OCR 会话、工作线程、超时和错误模型
 ├── ocr_oar.rs        # oar-ocr 后端与 PP-OCRv5 结果整理
+├── tray.rs           # 原生菜单创建以及 macOS/Linux 托盘运行时
 └── ui.rs             # 图标、纹理、字体和图片绘制工具
 ```
 

@@ -23,7 +23,7 @@
 
 ## What is Legend Shot?
 
-Legend Shot is a desktop screenshot utility built with Rust, `egui`, and `xcap`. It opens a capture overlay over the current desktop, lets you select a region, and provides a compact toolbar for annotation, OCR, copying, and saving.
+Legend Shot is a desktop screenshot utility built with Rust, `egui`, and `xcap`. On macOS and Linux it stays available in the top bar until you choose Capture; on Windows it opens the capture overlay immediately. The overlay lets you select a region and provides a compact toolbar for annotation, OCR, copying, and saving.
 
 The project focuses on a fast capture workflow, native-resolution output, cross-platform behavior, and local processing. OCR inference runs locally after the required model files are available.
 
@@ -60,12 +60,14 @@ A clean product screenshot will be added before the first packaged release.
 - Git and a native C/C++ build toolchain for your operating system.
 - Network access on the first OCR run if the PP-OCRv5 model assets are not already cached.
 
-Linux additionally requires an X11 desktop session and `xclip` for image clipboard support. A CJK font such as Noto Sans CJK is recommended:
+Linux additionally requires an X11 desktop session, GTK 3, `libxdo`, and an AppIndicator implementation. `xclip` provides image clipboard support, and a CJK font such as Noto Sans CJK is recommended:
 
 ```bash
 sudo apt update
-sudo apt install -y build-essential pkg-config xclip fonts-noto-cjk
+sudo apt install -y build-essential pkg-config xclip fonts-noto-cjk libgtk-3-dev libxdo-dev libayatana-appindicator3-dev
 ```
+
+If `libayatana-appindicator3-dev` is unavailable, `libappindicator3-dev` is an acceptable alternative. The desktop session must expose AppIndicator/StatusNotifier support; GNOME installations may require the AppIndicator extension.
 
 ### Run from source
 
@@ -75,22 +77,23 @@ cd legend_shot
 cargo run
 ```
 
-On macOS, grant screen-recording permission to Legend Shot—or to the terminal application when running with `cargo run`—under **System Settings → Privacy & Security → Screen & System Audio Recording**. Restart the application after changing the permission.
+On macOS, the first Capture request asks for screen-recording permission for Legend Shot—or for the terminal application when running with `cargo run`. Grant it under **System Settings → Privacy & Security → Screen & System Audio Recording**, then choose Capture again; the process remains resident while permission is pending.
 
 <a id="usage"></a>
 
 ## Usage
 
-1. Start Legend Shot.
+1. Start Legend Shot. On macOS/Linux, open its top-bar menu and choose **Capture**; the only other menu item is **Exit**. Windows enters capture immediately.
 2. Drag across the screen to select a capture region.
 3. Use the toolbar to annotate, run OCR, copy, or save the selection.
 4. Finish a text annotation with `Ctrl+Enter` on Windows/Linux or `Command+Enter` on macOS.
+5. On macOS/Linux, copy, save, or `Esc` returns to the tray; choose **Exit** from the tray menu to terminate the process. Windows exits after completing or cancelling capture.
 
 | Input | Action |
 | --- | --- |
 | Drag on the overlay | Select a screenshot region. |
-| Double-click inside the selection | Copy the selection and close the application. |
-| `Esc` | Cancel the current operation or close the capture overlay. |
+| Double-click inside the selection | Copy the selection, then return to the tray on macOS/Linux or exit on Windows. |
+| `Esc` | Cancel the current operation; closing the outer capture returns to the tray on macOS/Linux or exits on Windows. |
 | Move | Reposition the selected region. |
 | Pen / Rectangle / Arrow | Draw visual annotations. |
 | Text | Add multilingual text using the system input method. |
@@ -102,6 +105,8 @@ On macOS, grant screen-recording permission to Legend Shot—or to the terminal 
 ## Command-line test mode
 
 Legend Shot includes a non-interactive capture mode for development and smoke testing:
+
+The `--test` lifecycle is unchanged and does not create a tray icon.
 
 ```bash
 # Capture a region and copy it to the clipboard
@@ -147,9 +152,9 @@ Adding a Rust target alone is not always sufficient for desktop cross-compilatio
 
 | Platform | Notes |
 | --- | --- |
-| macOS | Requires Screen & System Audio Recording permission. Development builds launched from a terminal use the terminal's permission identity. |
-| Windows | Uses the native clipboard implementation through `arboard`; Microsoft YaHei or SimHei is used when available for CJK rendering. |
-| Linux | Currently targets X11. `xclip` is required for copying PNG images, and Noto Sans CJK is recommended for multilingual text. |
+| macOS | Starts in the menu bar. Screen & System Audio Recording permission is requested by the first capture action; development builds launched from a terminal use the terminal's permission identity. |
+| Windows | Starts capture immediately and exits after completion. It uses the native clipboard implementation through `arboard`; Microsoft YaHei or SimHei is used when available for CJK rendering. |
+| Linux | Starts in the top bar and currently targets X11. The session must support AppIndicator/StatusNotifier; `xclip` is required for copying PNG images. |
 
 ## OCR and privacy
 
@@ -178,6 +183,7 @@ src/
 ├── app_ocr_view.rs   # OCR result interface
 ├── ocr.rs            # OCR session, worker thread, timeout, and error model
 ├── ocr_oar.rs        # oar-ocr backend and PP-OCRv5 result normalization
+├── tray.rs           # Native menu creation and macOS/Linux tray runtimes
 └── ui.rs             # Icons, textures, fonts, and image drawing utilities
 ```
 
