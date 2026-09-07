@@ -13,6 +13,7 @@ mod app_handle;
 mod app_ocr;
 mod app_ocr_view;
 mod app_toolbar;
+mod display;
 mod ocr;
 mod ocr_oar;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
