@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, mpsc};
 
-use device_query::{DeviceState, MousePosition};
+use device_query::{DeviceQuery, DeviceState, MousePosition};
 use eframe::emath::{Pos2, Rect};
 use eframe::epaint::{Color32, ColorImage};
 use egui::Id;
@@ -108,6 +108,29 @@ impl TextInputState {
 pub struct MouseSelectionRect {
     pub start: MousePosition,
     pub end: MousePosition,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PointerSnapshot {
+    pub global_position: Pos2,
+    pub primary_down: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PrimaryButtonTransition {
+    Idle,
+    Pressed,
+    Held,
+    Released,
+}
+
+pub fn primary_button_transition(was_down: bool, is_down: bool) -> PrimaryButtonTransition {
+    match (was_down, is_down) {
+        (false, false) => PrimaryButtonTransition::Idle,
+        (false, true) => PrimaryButtonTransition::Pressed,
+        (true, true) => PrimaryButtonTransition::Held,
+        (true, false) => PrimaryButtonTransition::Released,
+    }
 }
 
 use crate::ocr::{OcrSession, OcrWorker};
@@ -268,6 +291,8 @@ pub struct ScreenshotApp {
     // 新增：文本输入完成标记
     pub text_input_finalized: bool,
     pub device_state: Option<DeviceState>,
+    pub pointer_snapshot: Option<PointerSnapshot>,
+    pub last_primary_down: bool,
 
     pub screen_width: i32,  // 屏幕宽度
     pub screen_height: i32, // 屏幕高度
@@ -338,6 +363,8 @@ impl Default for ScreenshotApp {
             window_rect: Rect::NOTHING,
             text_input_finalized: false,
             device_state: None,
+            pointer_snapshot: None,
+            last_primary_down: false,
             screen_width: 0,
             screen_height: 0,
             screen_scale: 1.0,
@@ -362,6 +389,62 @@ impl Default for ScreenshotApp {
 }
 
 impl ScreenshotApp {
+    pub fn begin_global_selection(&mut self, position: Pos2) {
+        self.is_selecting = true;
+        self.selection_start = position;
+        self.selection_end = position;
+        self.selection_rect = Some(Rect::from_min_max(position, position));
+        let mouse_position = (position.x.round() as i32, position.y.round() as i32);
+        self.mouse_start = mouse_position;
+        self.mouse_end = mouse_position;
+        self.mouse_selection_rect = Some(MouseSelectionRect {
+            start: mouse_position,
+            end: mouse_position,
+        });
+    }
+
+    pub fn update_global_selection(&mut self, position: Pos2) {
+        if !self.is_selecting {
+            return;
+        }
+        self.selection_end = position;
+        self.selection_rect = Some(Rect::from_two_pos(self.selection_start, self.selection_end));
+        self.mouse_end = (position.x.round() as i32, position.y.round() as i32);
+        self.mouse_selection_rect = Some(MouseSelectionRect {
+            start: (
+                self.mouse_start.0.min(self.mouse_end.0),
+                self.mouse_start.1.min(self.mouse_end.1),
+            ),
+            end: (
+                self.mouse_start.0.max(self.mouse_end.0),
+                self.mouse_start.1.max(self.mouse_end.1),
+            ),
+        });
+    }
+
+    pub fn finish_global_selection(&mut self) {
+        if !self.is_selecting {
+            return;
+        }
+        self.update_global_selection(self.selection_end);
+        self.is_selecting = false;
+        if self.selection_rect.is_some_and(|rect| rect.area() > 0.0) {
+            self.current_tool = Tool::MoveBox;
+        }
+    }
+
+    pub fn poll_pointer(&mut self) -> Option<(PointerSnapshot, PrimaryButtonTransition)> {
+        let mouse = self.device_state.as_ref()?.get_mouse();
+        let snapshot = PointerSnapshot {
+            global_position: Pos2::new(mouse.coords.0 as f32, mouse.coords.1 as f32),
+            primary_down: mouse.button_pressed.get(1).copied().unwrap_or(false),
+        };
+        let transition = primary_button_transition(self.last_primary_down, snapshot.primary_down);
+        self.last_primary_down = snapshot.primary_down;
+        self.pointer_snapshot = Some(snapshot);
+        Some((snapshot, transition))
+    }
+
     pub fn with_config(config: AppConfig, config_path: PathBuf) -> Self {
         let (sender, receiver) = mpsc::channel();
         let mut app = Self::default();
@@ -579,7 +662,7 @@ mod tests {
 
     use super::{
         AppConfig, AppLifecycle, CaptureRevealState, NativeSaveDialogState, OcrWindowState,
-        ScreenshotApp, Tool,
+        PrimaryButtonTransition, ScreenshotApp, Tool, primary_button_transition,
     };
 
     fn test_display(
@@ -786,5 +869,43 @@ mod tests {
 
         assert_eq!(app.capture_session.as_ref().unwrap().displays.len(), 1);
         assert_eq!(app.display_textures.len(), 1);
+    }
+
+    #[test]
+    fn primary_button_transition_is_emitted_once() {
+        assert_eq!(
+            primary_button_transition(false, true),
+            PrimaryButtonTransition::Pressed
+        );
+        assert_eq!(
+            primary_button_transition(true, true),
+            PrimaryButtonTransition::Held
+        );
+        assert_eq!(
+            primary_button_transition(true, false),
+            PrimaryButtonTransition::Released
+        );
+        assert_eq!(
+            primary_button_transition(false, false),
+            PrimaryButtonTransition::Idle
+        );
+    }
+
+    #[test]
+    fn global_selection_can_start_left_and_end_on_right_monitor() {
+        let mut app = ScreenshotApp::default();
+
+        app.begin_global_selection(Pos2::new(-200.0, 100.0));
+        app.update_global_selection(Pos2::new(300.0, 500.0));
+        app.finish_global_selection();
+
+        assert_eq!(
+            app.selection_rect,
+            Some(Rect::from_min_max(
+                Pos2::new(-200.0, 100.0),
+                Pos2::new(300.0, 500.0),
+            ))
+        );
+        assert!(!app.is_selecting);
     }
 }

@@ -276,6 +276,8 @@ impl ScreenshotApp {
         self.toolbar_position = egui::Pos2::ZERO;
         self.tool_bar_focused = false;
         self.text_input_finalized = false;
+        self.pointer_snapshot = None;
+        self.last_primary_down = false;
         self.is_selecting = false;
         self.is_moving_box = false;
         self.pending_save_image = None;
@@ -468,6 +470,9 @@ impl ScreenshotApp {
             return;
         };
         let specs = overlay_specs(session);
+        if let Some((snapshot, transition)) = self.poll_pointer() {
+            self.update_global_pointer_interaction(snapshot, transition, ctx);
+        }
         let visible = self.capture_reveal_state == crate::app_default::CaptureRevealState::Idle;
         let mut close_requested = false;
 
@@ -600,6 +605,11 @@ mod tests {
         app.tool_bar_focused = true;
         app.text_input_finalized = true;
         app.last_click_time = 42.0;
+        app.last_primary_down = true;
+        app.pointer_snapshot = Some(crate::app_default::PointerSnapshot {
+            global_position: egui::pos2(1.0, 1.0),
+            primary_down: true,
+        });
 
         app.reset_capture_state();
 
@@ -607,6 +617,8 @@ mod tests {
         assert!(!app.tool_bar_focused);
         assert!(!app.text_input_finalized);
         assert_eq!(app.last_click_time, 0.0);
+        assert!(!app.last_primary_down);
+        assert!(app.pointer_snapshot.is_none());
         assert!(app.capture_session.is_none());
         assert!(app.display_textures.is_empty());
     }

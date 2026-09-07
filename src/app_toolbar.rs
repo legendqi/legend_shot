@@ -53,6 +53,62 @@ fn draw_annotation_text_editor(
 }
 
 impl ScreenshotApp {
+    pub(crate) fn draw_annotations_for_display(&self, display_index: usize, ui: &mut Ui) {
+        let Some(display) = self
+            .capture_session
+            .as_ref()
+            .and_then(|session| session.displays.get(display_index))
+        else {
+            return;
+        };
+        let origin = display.geometry.logical_bounds.min.to_vec2();
+        let painter = ui.painter();
+        for annotation in self
+            .annotations
+            .iter()
+            .chain(self.current_annotation.iter())
+        {
+            let mut local = annotation.clone();
+            for point in &mut local.points {
+                *point -= origin;
+            }
+            self.draw_single_annotation(painter, &local);
+        }
+    }
+
+    pub(crate) fn draw_text_input_for_display(&mut self, display_index: usize, ui: &mut Ui) {
+        let Some(display_bounds) = self
+            .capture_session
+            .as_ref()
+            .and_then(|session| session.displays.get(display_index))
+            .map(|display| display.geometry.logical_bounds)
+        else {
+            return;
+        };
+        let selection_max_x = self
+            .selection_rect
+            .map_or(display_bounds.max.x, |rect| rect.max.x);
+        let color = self.annotation_color;
+        let Some(text_state) = &mut self.text_input else {
+            return;
+        };
+        if !text_state.is_active || !display_bounds.contains(text_state.position) {
+            return;
+        }
+        let local_position = text_state.position - display_bounds.min.to_vec2();
+        let desired_width = (selection_max_x.min(display_bounds.max.x) - text_state.position.x)
+            .abs()
+            .max(10.0);
+        egui::Area::new(text_state.widget_id)
+            .fixed_pos(local_position)
+            .order(egui::Order::Foreground)
+            .show(ui.ctx(), |ui| {
+                egui::Frame::NONE.show(ui, |ui| {
+                    draw_annotation_text_editor(ui, text_state, desired_width, color)
+                });
+            });
+    }
+
     pub(crate) fn draw_toolbar(&mut self, ctx: &egui::Context) {
         self.tool_bar_focused = false;
         if let Some(selection_rect) = self.selection_rect {
