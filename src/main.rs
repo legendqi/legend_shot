@@ -15,6 +15,8 @@ mod app_ocr_view;
 mod app_toolbar;
 mod ocr;
 mod ocr_oar;
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+mod tray;
 mod ui;
 
 /// Legend Shot - 截图工具

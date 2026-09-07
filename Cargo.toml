@@ -20,6 +20,12 @@ oar-ocr = { version = "=0.7.0", features = ["auto-download"] }
 ab_glyph = "0.2.32"
 imageproc = "0.26.2"
 
+[target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]
+tray-icon = "0.24.2"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+gtk = { version = "0.18.2", features = ["v3_24"] }
+
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2-core-graphics = { version = "0.3.2", default-features = false, features = ["CGWindow"] }
 winit = { version = "0.30.12", default-features = false }
