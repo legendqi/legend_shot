@@ -191,6 +191,23 @@ mod tests {
     }
 
     #[test]
+    fn linux_tray_icon_is_white_monochrome_on_transparency() {
+        let icon = image::load_from_memory(LINUX_TRAY_ICON_PNG)
+            .unwrap()
+            .into_rgba8();
+        let pixels = icon.pixels().collect::<Vec<_>>();
+
+        assert!(pixels.iter().any(|pixel| pixel[3] == 0));
+        assert!(pixels.iter().any(|pixel| pixel[3] > 0));
+        assert!(
+            pixels
+                .iter()
+                .filter(|pixel| pixel[3] > 0)
+                .all(|pixel| pixel[0] == 255 && pixel[1] == 255 && pixel[2] == 255)
+        );
+    }
+
+    #[test]
     fn menu_contains_only_capture_then_exit() {
         let specs = menu_specs();
         assert_eq!(specs.len(), 2);
