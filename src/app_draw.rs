@@ -171,7 +171,7 @@ impl ScreenshotApp {
                     if time_delta < 0.5 && pos_delta < 10.0 {
                         // 双击选中区域，复制到剪贴板并退出
                         if self.copy_to_clipboard().is_ok() {
-                            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                            self.hide_capture_window(ctx);
                         }
                         return;
                     }
@@ -408,7 +408,7 @@ impl ScreenshotApp {
                 self.mouse_selection_rect = None;
                 self.current_tool = Tool::Select;
             } else {
-                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                self.hide_capture_window(ctx);
             }
         }
     }

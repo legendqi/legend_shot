@@ -118,7 +118,7 @@ impl ScreenshotApp {
                             .clicked()
                             && self.close_ocr_result()
                         {
-                            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                            self.hide_capture_window(ctx);
                         }
                     });
                 },
@@ -132,7 +132,7 @@ impl ScreenshotApp {
             )
             && self.close_ocr_result()
         {
-            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            self.hide_capture_window(ctx);
         }
     }
 }

@@ -170,7 +170,7 @@ impl ScreenshotApp {
                             {
                                 if !self.selection_rect.unwrap().contains(self.toolbar_position) {
                                     let _ = self.copy_to_clipboard();
-                                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                                    self.hide_capture_window(ctx);
                                 } else {
                                     self.show_toolbar = false;
                                     ctx.request_repaint_of(ViewportId(toolbar_id));
@@ -201,7 +201,7 @@ impl ScreenshotApp {
                             self.purple_icon_button(ui, Tool::Exit, ctx, EXIT_ICON, "exit")
                                 .clicked()
                                 .then(|| {
-                                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                                    self.hide_capture_window(ctx);
                                     std::io::stdout().write_all("cancel".as_bytes()).unwrap();
                                     std::io::stdout().flush().unwrap();
                                 });

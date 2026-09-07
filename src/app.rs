@@ -62,11 +62,32 @@ pub(crate) fn ocr_window_geometry_can_be_applied(fullscreen: Option<bool>) -> bo
     fullscreen == Some(false)
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CompletionDisposition {
+    Hide,
+    Close,
+}
+
+pub(crate) fn completion_disposition_for(resident_platform: bool) -> CompletionDisposition {
+    if resident_platform {
+        CompletionDisposition::Hide
+    } else {
+        CompletionDisposition::Close
+    }
+}
+
 impl App for ScreenshotApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         #[cfg(any(target_os = "macos", target_os = "linux"))]
         {
             self.poll_tray_commands(ctx);
+            if self.lifecycle != AppLifecycle::Exiting
+                && ctx.input(|input| input.viewport().close_requested())
+            {
+                ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+                self.hide_capture_window(ctx);
+                return;
+            }
             if self.lifecycle != AppLifecycle::Capturing {
                 return;
             }
@@ -183,15 +204,16 @@ impl ScreenshotApp {
     }
 
     pub(crate) fn hide_capture_window(&mut self, ctx: &egui::Context) {
-        #[cfg(any(target_os = "macos", target_os = "linux"))]
-        {
-            self.reset_capture_state();
-            self.lifecycle.finish_capture();
-            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
-            return;
+        match completion_disposition_for(cfg!(any(target_os = "macos", target_os = "linux"))) {
+            CompletionDisposition::Hide => {
+                self.reset_capture_state();
+                self.lifecycle.finish_capture();
+                ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+            }
+            CompletionDisposition::Close => {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            }
         }
-        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
     }
 
     #[cfg(any(target_os = "macos", target_os = "linux"))]
@@ -346,7 +368,7 @@ impl ScreenshotApp {
                             }
                             AppSignal::Copy => {
                                 let _ = self.copy_to_clipboard();
-                                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                                self.hide_capture_window(ctx);
                             }
                         }
                     }
@@ -358,7 +380,7 @@ impl ScreenshotApp {
         if let Some(path) = self.save_dialog.take_picked() {
             if let Some(image) = self.pending_save_image.take() {
                 self.save_image_to_path(&image, &path);
-                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                self.hide_capture_window(ctx);
             }
         }
     }
@@ -366,7 +388,23 @@ impl ScreenshotApp {
 
 #[cfg(test)]
 mod tests {
-    use super::OCR_WINDOW_MIN_SIZE;
+    use super::{CompletionDisposition, OCR_WINDOW_MIN_SIZE, completion_disposition_for};
+
+    #[test]
+    fn resident_platform_hides_after_capture() {
+        assert_eq!(
+            completion_disposition_for(true),
+            CompletionDisposition::Hide
+        );
+    }
+
+    #[test]
+    fn non_resident_platform_closes_after_capture() {
+        assert_eq!(
+            completion_disposition_for(false),
+            CompletionDisposition::Close
+        );
+    }
 
     #[test]
     fn ocr_window_minimum_size_supports_modern_layout() {
