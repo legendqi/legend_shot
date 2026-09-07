@@ -65,6 +65,47 @@ pub fn crop_region_for_global_selection(
     Some((local_x, local_y, width, height))
 }
 
+pub fn crop_region_for_global_selection_in_pixels(
+    monitor: (i32, i32, u32, u32),
+    screenshot_size: (u32, u32),
+    selection_start: (i32, i32),
+    selection_end: (i32, i32),
+) -> Option<(u32, u32, u32, u32)> {
+    let (local_x, local_y, width, height) =
+        crop_region_for_global_selection(monitor, selection_start, selection_end)?;
+    if monitor.2 == 0 || monitor.3 == 0 || screenshot_size.0 == 0 || screenshot_size.1 == 0 {
+        return None;
+    }
+
+    let scale_boundary = |value: u32, logical_size: u32, pixel_size: u32, ceil: bool| {
+        let numerator = u64::from(value) * u64::from(pixel_size);
+        let denominator = u64::from(logical_size);
+        let scaled = if ceil {
+            numerator.div_ceil(denominator)
+        } else {
+            numerator / denominator
+        };
+        u32::try_from(scaled).ok()
+    };
+
+    let x = scale_boundary(local_x, monitor.2, screenshot_size.0, false)?;
+    let y = scale_boundary(local_y, monitor.3, screenshot_size.1, false)?;
+    let end_x = scale_boundary(
+        local_x.checked_add(width)?,
+        monitor.2,
+        screenshot_size.0,
+        true,
+    )?;
+    let end_y = scale_boundary(
+        local_y.checked_add(height)?,
+        monitor.3,
+        screenshot_size.1,
+        true,
+    )?;
+
+    Some((x, y, end_x.checked_sub(x)?, end_y.checked_sub(y)?))
+}
+
 impl ScreenshotApp {
     pub fn crop_selection_for_ocr(&self) -> Option<RgbaImage> {
         let mouse_selection = self.mouse_selection_rect?;
@@ -73,13 +114,22 @@ impl ScreenshotApp {
             .iter()
             .zip(&self.original_screenshots)
             .find_map(|(screen, screenshot)| {
+                let monitor = (
+                    screen.x().ok()?,
+                    screen.y().ok()?,
+                    screen.width().ok()?,
+                    screen.height().ok()?,
+                );
+                #[cfg(target_os = "macos")]
+                let crop = crop_region_for_global_selection_in_pixels(
+                    monitor,
+                    screenshot.dimensions(),
+                    mouse_selection.start,
+                    mouse_selection.end,
+                )?;
+                #[cfg(not(target_os = "macos"))]
                 let crop = crop_region_for_global_selection(
-                    (
-                        screen.x().ok()?,
-                        screen.y().ok()?,
-                        screen.width().ok()?,
-                        screen.height().ok()?,
-                    ),
+                    monitor,
                     mouse_selection.start,
                     mouse_selection.end,
                 )?;
@@ -216,13 +266,11 @@ mod tests {
     use std::time::Instant;
 
     use crate::app_default::{AppView, CaptureSnapshot, ScreenshotApp};
-    use crate::ocr::{
-        OCR_TIMEOUT, OcrErrorKind, OcrResponse, OcrViewState, OcrWorker,
-    };
+    use crate::ocr::{OCR_TIMEOUT, OcrErrorKind, OcrResponse, OcrViewState, OcrWorker};
 
     use super::{
-        OcrResultAction, crop_region_for_global_selection, crop_rgba_region,
-        ocr_result_escape_action,
+        OcrResultAction, crop_region_for_global_selection,
+        crop_region_for_global_selection_in_pixels, crop_rgba_region, ocr_result_escape_action,
     };
 
     #[test]
@@ -248,6 +296,19 @@ mod tests {
         });
 
         assert_eq!(located, Some((1, (440, 300, 200, 200))));
+    }
+
+    #[test]
+    fn global_selection_scales_to_retina_native_pixels() {
+        let crop = crop_region_for_global_selection_in_pixels(
+            (0, 0, 1512, 982),
+            (3024, 1964),
+            (300, 400),
+            (985, 607),
+        )
+        .expect("selection is inside the Retina monitor");
+
+        assert_eq!(crop, (600, 800, 1370, 414));
     }
 
     #[test]
@@ -408,10 +469,8 @@ mod tests {
     #[test]
     fn failed_recapture_submission_restores_snapshot_and_old_result() {
         let mut app = ScreenshotApp::default();
-        let old_selection = egui::Rect::from_min_max(
-            egui::pos2(10.0, 20.0),
-            egui::pos2(30.0, 40.0),
-        );
+        let old_selection =
+            egui::Rect::from_min_max(egui::pos2(10.0, 20.0), egui::pos2(30.0, 40.0));
         let old_mouse_selection = crate::app_default::MouseSelectionRect {
             start: (10, 20),
             end: (30, 40),

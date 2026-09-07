@@ -1,11 +1,14 @@
-use std::io::Write;
-use std::time::Instant;
+use crate::app_default::{Annotation, AppSignal, ScreenshotApp, Tool};
+use crate::ui::{
+    ARROW_ICON, COPY_ICON, EXIT_ICON, MOSAIC_ICON, MOVE_ICON, NUMBER_ICON, PEN_ICON,
+    RECTANGLE_ICON, SAVE_ICON, UNDO_ICON, WORD_ICON, load_texture_from_png, ocr_button,
+};
 use eframe::emath::{Pos2, Rect, Vec2};
 use eframe::epaint::{Color32, Hsva, Shape, Stroke, StrokeKind};
-use egui::{color_picker, text_selection, Button, Id, Popup, PopupCloseBehavior, Response, Ui, ViewportId};
 use egui::color_picker::color_picker_hsva_2d;
-use crate::app_default::{Annotation, AppSignal, ScreenshotApp, Tool};
-use crate::ui::{load_texture_from_png, ocr_button, ARROW_ICON, COPY_ICON, EXIT_ICON, MOSAIC_ICON, MOVE_ICON, NUMBER_ICON, PEN_ICON, RECTANGLE_ICON, SAVE_ICON, WORD_ICON, UNDO_ICON};
+use egui::{Button, Id, Popup, PopupCloseBehavior, Response, Ui, ViewportId, color_picker};
+use std::io::Write;
+use std::time::Instant;
 
 fn is_persistent_toolbar_tool(tool: Tool) -> bool {
     tool.is_annotation_tool() || matches!(tool, Tool::MoveBox | Tool::ColorPicker)
@@ -19,6 +22,36 @@ fn toolbar_width(item_spacing: f32) -> f32 {
     CONTENT_WIDTH + (ITEM_COUNT - 1.0) * item_spacing + HORIZONTAL_MARGIN
 }
 
+fn draw_annotation_text_editor(
+    ui: &mut Ui,
+    text_state: &mut crate::app_default::TextInputState,
+    desired_width: f32,
+    color: Color32,
+) -> Response {
+    let viewport_focused = ui.input(|input| input.focused);
+    if !viewport_focused {
+        ui.ctx().send_viewport_cmd(egui::ViewportCommand::Focus);
+        ui.ctx().request_repaint();
+    }
+    ui.style_mut().visuals.text_cursor.stroke.color = color;
+    let response = ui.add(
+        egui::TextEdit::multiline(&mut text_state.text)
+            .font(egui::FontId::proportional(16.0))
+            .desired_width(desired_width)
+            .desired_rows(1)
+            .min_size(Vec2::ZERO)
+            .frame(false)
+            .text_color(color)
+            .hint_text("")
+            .id(text_state.widget_id.with("editor")),
+    );
+    if !response.has_focus() {
+        response.request_focus();
+    }
+    text_state.has_focus = response.has_focus() || response.gained_focus();
+    response
+}
+
 impl ScreenshotApp {
     pub(crate) fn draw_toolbar(&mut self, ctx: &egui::Context) {
         self.tool_bar_focused = false;
@@ -26,8 +59,8 @@ impl ScreenshotApp {
             let toolbar_size = Vec2::new(toolbar_width(ctx.style().spacing.item_spacing.x), 40.0);
             // 计算工具栏位置：在选择框右下角，并与选择框右对齐
             let mut toolbar_pos = Pos2::new(
-                selection_rect.min.x, // 左对齐：工具栏左侧与选择框左侧对齐
-                selection_rect.max.y + 5.0,  // 在选择框下方，留 5.0 的间距
+                selection_rect.min.x,       // 左对齐：工具栏左侧与选择框左侧对齐
+                selection_rect.max.y + 5.0, // 在选择框下方，留 5.0 的间距
             );
             // 确保工具栏在屏幕内
             let screen_rect = ctx.viewport_rect();
@@ -51,7 +84,7 @@ impl ScreenshotApp {
             if toolbar_pos.y < screen_rect.min.y {
                 toolbar_pos.y = screen_rect.min.y + 10.0;
             }
-            
+
             self.toolbar_position = toolbar_pos;
             let toolbar_id = Id::new("annotation_toolbar");
             egui::Area::new(toolbar_id)
@@ -59,106 +92,122 @@ impl ScreenshotApp {
                 .order(egui::Order::Foreground)
                 .interactable(true)
                 .show(ctx, |ui| {
-                    egui::Frame::NONE
-                        .show(ui, |ui| {
-                            ui.horizontal(|ui| {
-                                // 工具选择
-                                self.purple_icon_button(ui, Tool::MoveBox, ctx, MOVE_ICON, "move");
-                                self.purple_icon_button(ui, Tool::Pen, ctx, PEN_ICON, "pen");
-                                self.purple_icon_button(ui, Tool::Rectangle, ctx, RECTANGLE_ICON, "rectangle");
-                                self.purple_icon_button(ui, Tool::Arrow, ctx, ARROW_ICON, "arrow");
-                                self.purple_icon_button(ui, Tool::Text, ctx, WORD_ICON, "word");
-                                self.purple_icon_button(ui, Tool::Mosaic, ctx, MOSAIC_ICON, "mosaic");
-                                self.purple_icon_button(ui, Tool::Number, ctx, NUMBER_ICON, "number");
+                    egui::Frame::NONE.show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            // 工具选择
+                            self.purple_icon_button(ui, Tool::MoveBox, ctx, MOVE_ICON, "move");
+                            self.purple_icon_button(ui, Tool::Pen, ctx, PEN_ICON, "pen");
+                            self.purple_icon_button(
+                                ui,
+                                Tool::Rectangle,
+                                ctx,
+                                RECTANGLE_ICON,
+                                "rectangle",
+                            );
+                            self.purple_icon_button(ui, Tool::Arrow, ctx, ARROW_ICON, "arrow");
+                            self.purple_icon_button(ui, Tool::Text, ctx, WORD_ICON, "word");
+                            self.purple_icon_button(ui, Tool::Mosaic, ctx, MOSAIC_ICON, "mosaic");
+                            self.purple_icon_button(ui, Tool::Number, ctx, NUMBER_ICON, "number");
 
-                                // 颜色选择
-                                self.custom_color_picker(ui, ctx);
+                            // 颜色选择
+                            self.custom_color_picker(ui, ctx);
 
-                                let undo_icon = load_texture_from_png(ctx, UNDO_ICON, "undo").unwrap();
-                                let undo_button = Button::new("")
-                                    .min_size(Vec2::new(30.0, 30.0))
-                                    .frame(false);
-                                let undo_response = ui.add_sized(Vec2::new(30.0, 30.0), undo_button);
-                                let undo_hovered = undo_response.hovered() || undo_response.has_focus();
-                                if undo_hovered {
-                                    self.tool_bar_focused = true;
-                                    ui.painter().circle_filled(
-                                        undo_response.rect.center(),
-                                        undo_response.rect.width() / 2.0,
-                                        Color32::BLUE,
-                                    );
-                                } else {
-                                    ui.painter().circle_filled(
-                                        undo_response.rect.center(),
-                                        undo_response.rect.width() / 2.0,
-                                        Color32::from_rgb(0, 100, 255),
-                                    );
-                                }
-                                let undo_icon_size = Vec2::new(20.0, 20.0);
-                                let undo_icon_rect = Rect::from_center_size(undo_response.rect.center(), undo_icon_size);
-                                ui.painter().image(
-                                    undo_icon,
-                                    undo_icon_rect,
-                                    Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
-                                    Color32::WHITE,
+                            let undo_icon = load_texture_from_png(ctx, UNDO_ICON, "undo").unwrap();
+                            let undo_button =
+                                Button::new("").min_size(Vec2::new(30.0, 30.0)).frame(false);
+                            let undo_response = ui.add_sized(Vec2::new(30.0, 30.0), undo_button);
+                            let undo_hovered = undo_response.hovered() || undo_response.has_focus();
+                            if undo_hovered {
+                                self.tool_bar_focused = true;
+                                ui.painter().circle_filled(
+                                    undo_response.rect.center(),
+                                    undo_response.rect.width() / 2.0,
+                                    Color32::BLUE,
                                 );
-                                if undo_response.clicked() {
-                                    if let Some(popped) = self.annotations.pop() {
-                                        if popped.tool == Tool::Number {
-                                            self.number_input = match self.number_input {
-                                                Some(n) if n > 1 => Some(n - 1),
-                                                _ => None,
-                                            };
+                            } else {
+                                ui.painter().circle_filled(
+                                    undo_response.rect.center(),
+                                    undo_response.rect.width() / 2.0,
+                                    Color32::from_rgb(0, 100, 255),
+                                );
+                            }
+                            let undo_icon_size = Vec2::new(20.0, 20.0);
+                            let undo_icon_rect =
+                                Rect::from_center_size(undo_response.rect.center(), undo_icon_size);
+                            ui.painter().image(
+                                undo_icon,
+                                undo_icon_rect,
+                                Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                                Color32::WHITE,
+                            );
+                            if undo_response.clicked() {
+                                if let Some(popped) = self.annotations.pop() {
+                                    if popped.tool == Tool::Number {
+                                        self.number_input = match self.number_input {
+                                            Some(n) if n > 1 => Some(n - 1),
+                                            _ => None,
+                                        };
+                                    }
+                                }
+                            }
+
+                            // 操作： OCR，复制，保存，退出
+                            let ocr_response = ocr_button(ui, ctx);
+                            if ocr_response.hovered() || ocr_response.has_focus() {
+                                self.tool_bar_focused = true;
+                            }
+                            if ocr_response.clicked() {
+                                if let Err(error) =
+                                    self.submit_ocr_for_current_selection(Instant::now())
+                                {
+                                    eprintln!("OCR 提交失败: {error}");
+                                }
+                            }
+
+                            if self
+                                .purple_icon_button(ui, Tool::Copy, ctx, COPY_ICON, "copy")
+                                .clicked()
+                            {
+                                if !self.selection_rect.unwrap().contains(self.toolbar_position) {
+                                    let _ = self.copy_to_clipboard();
+                                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                                } else {
+                                    self.show_toolbar = false;
+                                    ctx.request_repaint_of(ViewportId(toolbar_id));
+                                    let sender_clone = self.signal_sender.clone();
+                                    std::thread::spawn(move || {
+                                        // 保存截图逻辑...
+                                        // 保存完成后可能需要再次重绘
+                                        if let Some(signal_sender) = sender_clone {
+                                            // 发送信号给主窗口
+                                            std::thread::sleep(std::time::Duration::from_millis(
+                                                20,
+                                            ));
+                                            signal_sender
+                                                .lock()
+                                                .unwrap()
+                                                .send(AppSignal::Copy)
+                                                .ok();
                                         }
-                                    }
+                                    });
                                 }
+                            };
+                            let save_response =
+                                self.purple_icon_button(ui, Tool::Save, ctx, SAVE_ICON, "save");
+                            if save_response.clicked() {
+                                self.trigger_save_dialog();
+                            }
 
-                                // 操作： OCR，复制，保存，退出
-                                let ocr_response = ocr_button(ui, ctx);
-                                if ocr_response.hovered() || ocr_response.has_focus() {
-                                    self.tool_bar_focused = true;
-                                }
-                                if ocr_response.clicked() {
-                                    if let Err(error) = self.submit_ocr_for_current_selection(Instant::now()) {
-                                        eprintln!("OCR 提交失败: {error}");
-                                    }
-                                }
-
-                                if self.purple_icon_button(ui, Tool::Copy, ctx, COPY_ICON, "copy").clicked() {
-                                    if !self.selection_rect.unwrap().contains(self.toolbar_position) {
-                                        let _ = self.copy_to_clipboard();
-                                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                                    } else {
-                                        self.show_toolbar = false;
-                                        ctx.request_repaint_of(ViewportId(toolbar_id));
-                                        let sender_clone = self.signal_sender.clone();
-                                        std::thread::spawn(move || {
-                                            // 保存截图逻辑...
-                                            // 保存完成后可能需要再次重绘
-                                            if let Some(signal_sender)  = sender_clone {
-                                                // 发送信号给主窗口
-                                                std::thread::sleep(std::time::Duration::from_millis(20));
-                                                signal_sender.lock().unwrap().send(AppSignal::Copy).ok();
-                                            }
-                                        });
-                                    }
-
-                                };
-                                let save_response = self.purple_icon_button(ui, Tool::Save, ctx, SAVE_ICON, "save");
-                                if save_response.clicked() {
-                                    self.trigger_save_dialog();
-                                }
-
-
-                                self.purple_icon_button(ui, Tool::Exit, ctx, EXIT_ICON, "exit").clicked().then(|| {
+                            self.purple_icon_button(ui, Tool::Exit, ctx, EXIT_ICON, "exit")
+                                .clicked()
+                                .then(|| {
                                     ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                                     std::io::stdout().write_all("cancel".as_bytes()).unwrap();
                                     std::io::stdout().flush().unwrap();
                                 });
-                            });
                         });
+                    });
                 });
-
         }
     }
 
@@ -166,12 +215,11 @@ impl ScreenshotApp {
         let button_size = Vec2::new(30.0, 30.0);
 
         // 创建自定义按钮
-        let button = Button::new("")
-            .min_size(button_size)
-            .frame(false);
+        let button = Button::new("").min_size(button_size).frame(false);
         let color_pick_response = ui.add(button);
 
-        let is_hovered_or_focused = color_pick_response.hovered() || color_pick_response.has_focus();
+        let is_hovered_or_focused =
+            color_pick_response.hovered() || color_pick_response.has_focus();
 
         // 颜色选择
         let inner_radius = color_pick_response.rect.width() / 2.0;
@@ -205,7 +253,7 @@ impl ScreenshotApp {
             .show(|ui| {
                 ui.add_space(10.0); // 必须加，否则不会显示
                 ui.spacing_mut().slider_width = 275.0;
-                if color_picker_hsva_2d(ui, & mut hsva, color_picker::Alpha::BlendOrAdditive) {
+                if color_picker_hsva_2d(ui, &mut hsva, color_picker::Alpha::BlendOrAdditive) {
                     self.annotation_color = Color32::from(hsva);
                 }
             });
@@ -216,15 +264,20 @@ impl ScreenshotApp {
         }
     }
 
-    pub fn purple_icon_button(&mut self, ui: &mut Ui, tool: Tool, ctx: &egui::Context, icon_bytes: &[u8], icon_id: &str) -> Response {
+    pub fn purple_icon_button(
+        &mut self,
+        ui: &mut Ui,
+        tool: Tool,
+        ctx: &egui::Context,
+        icon_bytes: &[u8],
+        icon_id: &str,
+    ) -> Response {
         let icon = load_texture_from_png(ctx, icon_bytes, icon_id).unwrap();
         let selected = self.current_tool == tool;
         let button_size = Vec2::new(30.0, 30.0);
 
         // 创建自定义按钮
-        let button = Button::new("")
-            .min_size(button_size)
-            .frame(false);
+        let button = Button::new("").min_size(button_size).frame(false);
         // 根据状态设置按钮颜色
         let response = ui.add_sized(button_size, button);
         let is_hovered_or_focused = response.hovered() || response.has_focus();
@@ -242,13 +295,12 @@ impl ScreenshotApp {
             ui.painter().circle_filled(
                 response.rect.center(),
                 response.rect.width() / 2.0, // 圆角为0
-                Color32::BLUE, // 选中或悬停时为蓝色
+                Color32::BLUE,               // 选中或悬停时为蓝色
             );
-        }
-        else {
+        } else {
             ui.painter().circle_filled(
                 response.rect.center(),
-                response.rect.width() / 2.0, // 圆角为0
+                response.rect.width() / 2.0,    // 圆角为0
                 Color32::from_rgb(0, 100, 255), // 初始状态为淡紫色
             );
         }
@@ -288,76 +340,36 @@ impl ScreenshotApp {
 
     // 文本输入
     pub(crate) fn draw_text_input(&mut self, ui: &mut Ui) {
-        if let Some(text_state) = &mut self.text_input && text_state.is_active {
+        if let Some(text_state) = &mut self.text_input
+            && text_state.is_active
+        {
             let max_x = self.selection_end.x;
             let current_x = text_state.position.x;
             let desired_width = (max_x - current_x).abs().max(10.0);
 
-            // 获取当前时间用于光标闪烁
-            let now = ui.ctx().input(|i| i.time);
-
             // 创建文本输入区域
-            let _text_response = egui::Area::new(text_state.widget_id)
+            egui::Area::new(text_state.widget_id)
                 .fixed_pos(text_state.position)
                 .order(egui::Order::Foreground)
                 .show(ui.ctx(), |ui| {
-                    egui::Frame::NONE
-                        .show(ui, |ui| {
-                            ui.style_mut().visuals.text_cursor.stroke.color = self.annotation_color; // 设置为蓝色光标
-                            let text_edit = egui::TextEdit::multiline(&mut text_state.text)
-                                .font(egui::FontId::proportional(16.0))
-                                .desired_width(desired_width)
-                                .desired_rows(1)
-                                .min_size(Vec2::ZERO)
-                                .frame(false)
-                                .text_color(self.annotation_color)
-                                .hint_text("")
-                                .id(text_state.widget_id);
-                            let response = ui.add(text_edit);
-
-                            // 更新焦点状态和交互时间
-                            text_state.has_focus = response.has_focus();
-                            if response.changed() || response.lost_focus() || response.gained_focus() {
-                                text_state.last_interaction_time = now;
-                            }
-                            response
-                        }).inner
-                }).response;
-            // 手动绘制光标
-            ui.visuals_mut().text_cursor.stroke.color = self.annotation_color;
-            let painter = ui.painter();
-
-            // 计算光标位置（这里需要根据文本内容计算准确的光标位置）
-            // 这是一个简化的实现，实际可能需要更复杂的光标位置计算
-            let cursor_rect = {
-                let galley = ui.fonts_mut(|f| f.layout_no_wrap(
-                    text_state.text.clone(),
-                    egui::FontId::proportional(16.0),
-                    self.annotation_color,
-                ));
-
-                let cursor_x = text_state.position.x + galley.size().x + 2.0; // 在文本末尾
-                let cursor_y = text_state.position.y;
-                let cursor_height = 16.0; // 字体高度
-
-                Rect::from_min_size(
-                    egui::pos2(cursor_x, cursor_y),
-                    egui::vec2(20.0, cursor_height), // 光标宽度为2像素
-                )
-            };
-            // 绘制光标
-            text_selection::visuals::paint_text_cursor(
-                ui,
-                &painter,
-                cursor_rect,
-                now - text_state.last_interaction_time,
-            );
+                    egui::Frame::NONE.show(ui, |ui| {
+                        draw_annotation_text_editor(
+                            ui,
+                            text_state,
+                            desired_width,
+                            self.annotation_color,
+                        )
+                    });
+                });
         }
-
     }
 
     fn draw_single_annotation(&self, painter: &egui::Painter, annotation: &Annotation) {
-        let min_points = if annotation.tool == Tool::Mosaic { 1 } else { 2 };
+        let min_points = if annotation.tool == Tool::Mosaic {
+            1
+        } else {
+            2
+        };
         if annotation.points.len() < min_points {
             return;
         }
@@ -374,22 +386,28 @@ impl ScreenshotApp {
             }
             Tool::Rectangle => {
                 // 绘制矩形
-                if let (Some(&start), Some(&end)) = (annotation.points.first(), annotation.points.last()) {
+                if let (Some(&start), Some(&end)) =
+                    (annotation.points.first(), annotation.points.last())
+                {
                     let rect = Rect::from_two_pos(start, end);
                     painter.rect_stroke(rect, egui::CornerRadius::ZERO, stroke, StrokeKind::Middle);
                 }
             }
             Tool::Arrow => {
                 // 绘制箭头
-                if let (Some(&start), Some(&end)) = (annotation.points.first(), annotation.points.last()) {
+                if let (Some(&start), Some(&end)) =
+                    (annotation.points.first(), annotation.points.last())
+                {
                     // 1️⃣ 先画箭杆（线，和原来一样）
-                    
+
                     painter.line_segment([start, end], stroke);
 
                     // 2️⃣ 计算箭头头的三个点（实心三角形！）
                     let dir = end - start;
                     let dir_len = dir.length();
-                    if dir_len < 1.0 { return; } // 防止太短
+                    if dir_len < 1.0 {
+                        return;
+                    } // 防止太短
 
                     let dir_norm = dir / dir_len; // 方向单位向量
 
@@ -414,7 +432,9 @@ impl ScreenshotApp {
             }
             Tool::Text => {
                 // 显示已保存的文本（仅在文本输入不活动时）
-                if let Some(&pos) = annotation.points.first() && !annotation.text.is_empty() {
+                if let Some(&pos) = annotation.points.first()
+                    && !annotation.text.is_empty()
+                {
                     // 按换行符分割文本
                     let lines: Vec<&str> = annotation.text.lines().collect();
                     let line_height = 16.0; // 与字体大小一致
@@ -435,7 +455,9 @@ impl ScreenshotApp {
                 }
             }
             Tool::Mosaic => {
-                if let (Some(&start), Some(&end)) = (annotation.points.first(), annotation.points.last()) {
+                if let (Some(&start), Some(&end)) =
+                    (annotation.points.first(), annotation.points.last())
+                {
                     let rect = Rect::from_two_pos(start, end);
 
                     let block_size = 4.0;
@@ -450,16 +472,22 @@ impl ScreenshotApp {
                             let block_rect = Rect::from_min_size(
                                 Pos2::new(
                                     rect.min.x + col as f32 * block_size,
-                                    rect.min.y + row as f32 * block_size
+                                    rect.min.y + row as f32 * block_size,
                                 ),
-                                Vec2::new(block_size, block_size)
+                                Vec2::new(block_size, block_size),
                             );
-                            let sample_x = ((rect.min.x + col as f32 * block_size) * self.screen_scale) as u32;
-                            let sample_y = ((rect.min.y + row as f32 * block_size) * self.screen_scale) as u32;
+                            let sample_x =
+                                ((rect.min.x + col as f32 * block_size) * self.screen_scale) as u32;
+                            let sample_y =
+                                ((rect.min.y + row as f32 * block_size) * self.screen_scale) as u32;
                             if sample_x < tex.width() && sample_y < tex.height() {
                                 let pixel = tex.get_pixel(sample_x, sample_y);
                                 let current_color = Color32::from_rgb(pixel[0], pixel[1], pixel[2]);
-                                painter.rect_filled(block_rect, egui::CornerRadius::ZERO, current_color);
+                                painter.rect_filled(
+                                    block_rect,
+                                    egui::CornerRadius::ZERO,
+                                    current_color,
+                                );
                             }
                         }
                     }
@@ -472,11 +500,7 @@ impl ScreenshotApp {
                     let circle_radius = 12.0; // 圆圈半径（比文字大点更舒服）
 
                     // 1️⃣ 先画圆圈背景（半透明黑，避免遮挡）
-                    painter.circle_filled(
-                        pos,
-                        circle_radius,
-                        annotation.color
-                    );
+                    painter.circle_filled(pos, circle_radius, annotation.color);
 
                     // 2️⃣ 再画白色序号（居中）
                     painter.text(
@@ -495,8 +519,105 @@ impl ScreenshotApp {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_persistent_toolbar_tool, toolbar_width};
-    use crate::app_default::Tool;
+    use super::{draw_annotation_text_editor, is_persistent_toolbar_tool, toolbar_width};
+    use crate::app_default::{TextInputState, Tool};
+
+    #[test]
+    fn unfocused_annotation_editor_requests_window_focus() {
+        let context = egui::Context::default();
+        let mut state = TextInputState::new(egui::Pos2::ZERO);
+        let mut input = egui::RawInput::default();
+        input.focused = false;
+        input.screen_rect = Some(egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(300.0, 100.0),
+        ));
+
+        let output = context.run(input, |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                draw_annotation_text_editor(ui, &mut state, 280.0, egui::Color32::WHITE);
+            });
+        });
+
+        let commands = &output
+            .viewport_output
+            .get(&egui::ViewportId::ROOT)
+            .expect("root viewport output should exist")
+            .commands;
+        assert!(
+            commands
+                .iter()
+                .any(|command| matches!(command, egui::ViewportCommand::Focus)),
+            "starting an annotation editor from an accessory window must request keyboard focus"
+        );
+    }
+
+    #[test]
+    fn annotation_text_editor_inside_area_accepts_text() {
+        let context = egui::Context::default();
+        let mut state = TextInputState::new(egui::pos2(20.0, 20.0));
+        let run_frame = |events: Vec<egui::Event>, state: &mut TextInputState| {
+            let mut input = egui::RawInput::default();
+            input.focused = true;
+            input.screen_rect = Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(300.0, 100.0),
+            ));
+            input.events = events;
+            let _ = context.run(input, |ctx| {
+                egui::CentralPanel::default().show(ctx, |_ui| {
+                    egui::Area::new(state.widget_id)
+                        .fixed_pos(state.position)
+                        .show(ctx, |ui| {
+                            draw_annotation_text_editor(ui, state, 260.0, egui::Color32::WHITE);
+                        });
+                });
+            });
+        };
+
+        run_frame(Vec::new(), &mut state);
+        run_frame(vec![egui::Event::Text("a".to_string())], &mut state);
+
+        assert_eq!(state.text, "a");
+    }
+
+    #[test]
+    fn annotation_text_editor_accepts_ime_committed_text() {
+        let context = egui::Context::default();
+        let mut state = TextInputState::new(egui::Pos2::ZERO);
+        let run_frame = |events: Vec<egui::Event>, state: &mut TextInputState| {
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(300.0, 100.0),
+            ));
+            input.events = events;
+            let _ = context.run(input, |ctx| {
+                egui::CentralPanel::default().show(ctx, |_ui| {
+                    egui::Area::new(state.widget_id)
+                        .fixed_pos(state.position)
+                        .show(ctx, |ui| {
+                            draw_annotation_text_editor(ui, state, 280.0, egui::Color32::WHITE);
+                        });
+                });
+            });
+        };
+
+        run_frame(Vec::new(), &mut state);
+        run_frame(vec![egui::Event::Ime(egui::ImeEvent::Enabled)], &mut state);
+        run_frame(
+            vec![egui::Event::Ime(egui::ImeEvent::Preedit(
+                "中文".to_string(),
+            ))],
+            &mut state,
+        );
+        run_frame(
+            vec![egui::Event::Ime(egui::ImeEvent::Commit("中文".to_string()))],
+            &mut state,
+        );
+
+        assert_eq!(state.text, "中文");
+    }
 
     #[test]
     fn toolbar_width_covers_all_items_spacing_and_margin() {

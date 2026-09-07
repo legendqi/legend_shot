@@ -10,6 +10,8 @@ const OCR_WINDOW_MIN_SIZE: egui::Vec2 = egui::vec2(440.0, 320.0);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct CaptureWindowStyle {
+    pub accessory_application: bool,
+    pub fullscreen: bool,
     pub decorations: bool,
     pub resizable: bool,
     pub close_button: bool,
@@ -18,12 +20,30 @@ pub(crate) struct CaptureWindowStyle {
 }
 
 pub(crate) fn capture_window_style() -> CaptureWindowStyle {
-    CaptureWindowStyle {
-        decorations: true,
-        resizable: true,
-        close_button: true,
-        minimize_button: true,
-        maximize_button: true,
+    capture_window_style_for(cfg!(target_os = "macos"))
+}
+
+pub(crate) fn capture_window_style_for(is_macos: bool) -> CaptureWindowStyle {
+    if is_macos {
+        CaptureWindowStyle {
+            accessory_application: true,
+            fullscreen: false,
+            decorations: false,
+            resizable: false,
+            close_button: false,
+            minimize_button: false,
+            maximize_button: false,
+        }
+    } else {
+        CaptureWindowStyle {
+            accessory_application: false,
+            fullscreen: true,
+            decorations: true,
+            resizable: true,
+            close_button: true,
+            minimize_button: true,
+            maximize_button: true,
+        }
     }
 }
 
@@ -89,6 +109,10 @@ impl ScreenshotApp {
             minimized: true,
             maximize: true,
         });
+        #[cfg(target_os = "macos")]
+        ctx.send_viewport_cmd(egui::ViewportCommand::WindowLevel(
+            egui::WindowLevel::Normal,
+        ));
 
         let fullscreen = ctx.input(|input| input.viewport().fullscreen);
         if !ocr_window_geometry_can_be_applied(fullscreen) {
@@ -147,6 +171,7 @@ impl ScreenshotApp {
 
     fn restore_capture_window(&mut self, ctx: &egui::Context) {
         let style = capture_window_style();
+        ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(style.fullscreen));
         ctx.send_viewport_cmd(egui::ViewportCommand::Decorations(style.decorations));
         ctx.send_viewport_cmd(egui::ViewportCommand::Resizable(style.resizable));
         ctx.send_viewport_cmd(egui::ViewportCommand::EnableButtons {
@@ -154,7 +179,30 @@ impl ScreenshotApp {
             minimized: style.minimize_button,
             maximize: style.maximize_button,
         });
-        ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(true));
+
+        #[cfg(target_os = "macos")]
+        if let Some(screen) = self
+            .screens
+            .iter()
+            .find(|screen| screen.is_primary().unwrap_or(false))
+            .or_else(|| self.screens.first())
+        {
+            if let (Ok(x), Ok(y), Ok(width), Ok(height)) =
+                (screen.x(), screen.y(), screen.width(), screen.height())
+            {
+                ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(egui::pos2(
+                    x as f32, y as f32,
+                )));
+                ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(
+                    width as f32,
+                    height as f32,
+                )));
+                ctx.send_viewport_cmd(egui::ViewportCommand::WindowLevel(
+                    egui::WindowLevel::AlwaysOnTop,
+                ));
+            }
+        }
+
         self.ocr_window_configured = false;
     }
 

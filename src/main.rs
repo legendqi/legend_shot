@@ -1,6 +1,7 @@
 use crate::app_default::{AppConfig, ScreenshotApp};
 use crate::ocr::spawn_ocr_worker;
 use crate::ocr_oar::OarOcrFactory;
+use crate::ui::load_cjk_font;
 use clap::Parser;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -34,8 +35,43 @@ struct Args {
     output: Option<String>,
 }
 
+#[cfg(target_os = "macos")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MacosCapturePermissionAction {
+    Capture,
+    RequestAndExit,
+}
+
+#[cfg(target_os = "macos")]
+fn macos_capture_permission_action(has_permission: bool) -> MacosCapturePermissionAction {
+    if has_permission {
+        MacosCapturePermissionAction::Capture
+    } else {
+        MacosCapturePermissionAction::RequestAndExit
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn ensure_macos_screen_capture_permission() -> eframe::Result<()> {
+    use objc2_core_graphics::{CGPreflightScreenCaptureAccess, CGRequestScreenCaptureAccess};
+
+    match macos_capture_permission_action(CGPreflightScreenCaptureAccess()) {
+        MacosCapturePermissionAction::Capture => Ok(()),
+        MacosCapturePermissionAction::RequestAndExit => {
+            let _ = CGRequestScreenCaptureAccess();
+            Err(eframe::Error::AppCreation(Box::new(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "没有屏幕录制权限。请在“系统设置 → 隐私与安全性 → 屏幕与系统录音”中允许系统弹窗对应的 legend_shot（开发模式下可能显示为终端），然后重新运行应用。开发版本重新编译后可能需要再次授权。",
+            ))))
+        }
+    }
+}
+
 fn main() -> eframe::Result<()> {
     let args = Args::parse();
+
+    #[cfg(target_os = "macos")]
+    ensure_macos_screen_capture_permission()?;
 
     // 自动测试模式
     if let Some(region) = args.test {
@@ -51,21 +87,59 @@ fn main() -> eframe::Result<()> {
     app.ocr_worker = Some(spawn_ocr_worker(OarOcrFactory::new()));
 
     // 所有平台在窗口显示前截图，避免截图包含遮罩层
+    #[cfg(target_os = "macos")]
+    app.capture_screens().map_err(|error| {
+        eframe::Error::AppCreation(Box::new(std::io::Error::other(format!(
+            "捕获屏幕失败: {error}"
+        ))))
+    })?;
+
+    #[cfg(not(target_os = "macos"))]
     let _ = app.capture_screens();
 
     let capture_style = crate::app::capture_window_style();
-    let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_fullscreen(true)
-            .with_decorations(capture_style.decorations)
-            .with_resizable(capture_style.resizable)
-            .with_maximize_button(capture_style.maximize_button)
-            .with_minimize_button(capture_style.minimize_button)
-            .with_close_button(capture_style.close_button)
-            .with_visible(false)
-            .with_transparent(true),
+    let mut viewport = egui::ViewportBuilder::default()
+        .with_fullscreen(capture_style.fullscreen)
+        .with_decorations(capture_style.decorations)
+        .with_resizable(capture_style.resizable)
+        .with_maximize_button(capture_style.maximize_button)
+        .with_minimize_button(capture_style.minimize_button)
+        .with_close_button(capture_style.close_button)
+        .with_visible(false)
+        .with_transparent(true);
+
+    #[cfg(target_os = "macos")]
+    if let Some(screen) = app
+        .screens
+        .iter()
+        .find(|screen| screen.is_primary().unwrap_or(false))
+        .or_else(|| app.screens.first())
+    {
+        if let (Ok(x), Ok(y), Ok(width), Ok(height)) =
+            (screen.x(), screen.y(), screen.width(), screen.height())
+        {
+            viewport = viewport
+                .with_position(egui::pos2(x as f32, y as f32))
+                .with_inner_size(egui::vec2(width as f32, height as f32))
+                .with_window_level(egui::WindowLevel::AlwaysOnTop);
+        }
+    }
+
+    let mut options = eframe::NativeOptions {
+        viewport,
         ..Default::default()
     };
+
+    #[cfg(target_os = "macos")]
+    if capture_style.accessory_application {
+        options.event_loop_builder = Some(Box::new(|builder| {
+            use winit::platform::macos::{ActivationPolicy, EventLoopBuilderExtMacOS};
+
+            builder
+                .with_activation_policy(ActivationPolicy::Accessory)
+                .with_default_menu(false);
+        }));
+    }
 
     eframe::run_native(
         "",
@@ -76,7 +150,7 @@ fn main() -> eframe::Result<()> {
             if let Some(font_data) = load_cjk_font() {
                 fonts.font_data.insert(
                     "cjk_font".to_owned(),
-                    Arc::new(egui::FontData::from_owned(font_data)),
+                    Arc::new(egui::FontData::from_owned(font_data.as_ref().clone())),
                 );
                 fonts
                     .families
@@ -109,25 +183,6 @@ fn load_config(path: &PathBuf) -> AppConfig {
         }
     }
     AppConfig::default()
-}
-
-fn load_cjk_font() -> Option<Vec<u8>> {
-    let font_paths = [
-        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
-        "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
-        "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
-        "/System/Library/Fonts/STHeiti Light.ttc",
-        "/System/Library/Fonts/PingFang.ttc",
-        "C:\\Windows\\Fonts\\msyh.ttc",
-        "C:\\Windows\\Fonts\\simhei.ttf",
-    ];
-
-    for path in font_paths {
-        if let Ok(data) = std::fs::read(path) {
-            return Some(data);
-        }
-    }
-    None
 }
 
 fn new_test_mode_app() -> ScreenshotApp {
@@ -231,6 +286,27 @@ fn run_test_mode(region: &str, action: &str, output: Option<&str>) -> eframe::Re
 #[cfg(test)]
 mod tests {
     use super::new_test_mode_app;
+
+    #[cfg(target_os = "macos")]
+    use super::{MacosCapturePermissionAction, macos_capture_permission_action};
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_denied_screen_capture_permission_stops_before_capture() {
+        assert_eq!(
+            macos_capture_permission_action(false),
+            MacosCapturePermissionAction::RequestAndExit
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_granted_screen_capture_permission_allows_capture() {
+        assert_eq!(
+            macos_capture_permission_action(true),
+            MacosCapturePermissionAction::Capture
+        );
+    }
 
     #[test]
     fn test_mode_constructor_uses_default_without_ocr_worker() {

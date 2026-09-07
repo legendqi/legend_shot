@@ -83,11 +83,9 @@ pub struct Annotation {
 pub struct TextInputState {
     pub position: Pos2,
     pub text: String,
-    pub preedit: Option<String>, // (预编辑文本, 光标位置)
     pub is_active: bool,
     pub widget_id: Id,   // 添加widget_id用于焦点管理
     pub has_focus: bool, // 新增：跟踪焦点状态
-    pub last_interaction_time: f64,
 }
 
 // 在创建TextInputState时初始化widget_id
@@ -96,13 +94,11 @@ impl TextInputState {
         Self {
             position,
             text: String::new(),
-            preedit: None,
             is_active: true,
             // 使用下面这个windows下销毁输入框会报错
             // widget_id: Id::new(format!("text_input_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos())),
             widget_id: Id::new("text_input".to_string()), // 使用固定ID或生成唯一ID
             has_focus: false,
-            last_interaction_time: 0.0,
         }
     }
 }
@@ -168,7 +164,7 @@ pub struct ScreenshotApp {
 
     // 新增：文本输入完成标记
     pub text_input_finalized: bool,
-    pub device_state: DeviceState,
+    pub device_state: Option<DeviceState>,
 
     pub screen_width: i32,  // 屏幕宽度
     pub screen_height: i32, // 屏幕高度
@@ -232,7 +228,7 @@ impl Default for ScreenshotApp {
             toolbar_position: Pos2::ZERO,
             window_rect: Rect::NOTHING,
             text_input_finalized: false,
-            device_state: DeviceState::new(),
+            device_state: None,
             screen_width: 0,
             screen_height: 0,
             screen_scale: 1.0,
@@ -280,6 +276,7 @@ impl ScreenshotApp {
 
         app.signal_sender = Some(Arc::new(Mutex::new(sender)));
         app.signal_receiver = Some(Arc::new(Mutex::new(receiver)));
+        app.device_state = Some(DeviceState::new());
         app
     }
 
@@ -442,9 +439,31 @@ mod tests {
     }
 
     #[test]
-    fn capture_window_keeps_native_frame_available_for_ocr_result() {
+    fn capture_window_uses_platform_appropriate_fullscreen_mode() {
         let style = crate::app::capture_window_style();
 
+        assert_eq!(style.fullscreen, !cfg!(target_os = "macos"));
+    }
+
+    #[test]
+    fn macos_capture_window_is_a_borderless_fixed_overlay() {
+        let style = crate::app::capture_window_style_for(true);
+
+        assert!(style.accessory_application);
+        assert!(!style.fullscreen);
+        assert!(!style.decorations);
+        assert!(!style.resizable);
+        assert!(!style.close_button);
+        assert!(!style.minimize_button);
+        assert!(!style.maximize_button);
+    }
+
+    #[test]
+    fn non_macos_capture_window_keeps_existing_fullscreen_behavior() {
+        let style = crate::app::capture_window_style_for(false);
+
+        assert!(!style.accessory_application);
+        assert!(style.fullscreen);
         assert!(style.decorations);
         assert!(style.resizable);
         assert!(style.close_button);
@@ -457,6 +476,13 @@ mod tests {
         let app = ScreenshotApp::default();
 
         assert!(app.ocr_worker.is_none());
+    }
+
+    #[test]
+    fn default_constructor_does_not_initialize_os_pointer_source() {
+        let app = ScreenshotApp::default();
+
+        assert!(app.device_state.is_none());
     }
 
     #[test]

@@ -76,7 +76,9 @@ impl ScreenshotApp {
             ui.add_space(16.0);
 
             let actions_height = 36.0;
-            let card_height = (ui.available_height() - actions_height - 16.0).max(120.0);
+            let card_height =
+                (ui.available_height() - actions_height - 16.0 - ui.spacing().item_spacing.y)
+                    .max(120.0);
             draw_result_card(ui, &mut model, card_height);
             ui.add_space(16.0);
 
@@ -160,61 +162,67 @@ fn draw_result_card(ui: &mut egui::Ui, model: &mut OcrViewModel, height: f32) {
     let fill = visuals.extreme_bg_color;
     let stroke = visuals.widgets.noninteractive.bg_stroke;
 
-    egui::Frame::new()
-        .fill(fill)
-        .stroke(stroke)
-        .corner_radius(10.0)
-        .inner_margin(16.0)
-        .show(ui, |ui| {
-            ui.set_min_size(egui::vec2(ui.available_width(), height - 32.0));
-
-            if model.recognizing {
-                ui.horizontal(|ui| {
-                    ui.add(egui::Spinner::new().size(16.0));
-                    ui.weak("正在识别，请稍候");
-                });
-                if !model.is_empty {
-                    ui.add_space(12.0);
-                    ui.separator();
-                    ui.add_space(8.0);
-                }
-            }
-
-            if let Some(message) = model.error_message {
-                ui.colored_label(ui.visuals().error_fg_color, message);
-                if !model.is_empty {
-                    ui.add_space(12.0);
-                    ui.separator();
-                    ui.add_space(8.0);
-                }
-            }
-
-            if model.is_empty {
-                ui.centered_and_justified(|ui| {
-                    ui.weak(if model.recognizing {
-                        "识别结果将在完成后显示"
-                    } else {
-                        "识别结果将在这里显示"
-                    });
-                });
-                return;
-            }
-
-            let mut text = model.text.as_str();
-
-            egui::ScrollArea::vertical()
-                .id_salt("ocr_result_scroll")
-                .auto_shrink([false, false])
+    ui.allocate_ui_with_layout(
+        egui::vec2(ui.available_width(), height),
+        egui::Layout::top_down(egui::Align::Min),
+        |ui| {
+            egui::Frame::new()
+                .fill(fill)
+                .stroke(stroke)
+                .corner_radius(10.0)
+                .inner_margin(16.0)
                 .show(ui, |ui| {
-                    ui.add_sized(
-                        ui.available_size(),
-                        egui::TextEdit::multiline(&mut text)
-                            .id(egui::Id::new("ocr_result_text"))
-                            .desired_width(f32::INFINITY)
-                            .frame(false),
-                    );
+                    ui.set_min_size(ui.available_size());
+
+                    if model.recognizing {
+                        ui.horizontal(|ui| {
+                            ui.add(egui::Spinner::new().size(16.0));
+                            ui.weak("正在识别，请稍候");
+                        });
+                        if !model.is_empty {
+                            ui.add_space(12.0);
+                            ui.separator();
+                            ui.add_space(8.0);
+                        }
+                    }
+
+                    if let Some(message) = model.error_message {
+                        ui.colored_label(ui.visuals().error_fg_color, message);
+                        if !model.is_empty {
+                            ui.add_space(12.0);
+                            ui.separator();
+                            ui.add_space(8.0);
+                        }
+                    }
+
+                    if model.is_empty {
+                        ui.centered_and_justified(|ui| {
+                            ui.weak(if model.recognizing {
+                                "识别结果将在完成后显示"
+                            } else {
+                                "识别结果将在这里显示"
+                            });
+                        });
+                        return;
+                    }
+
+                    let mut text = model.text.as_str();
+
+                    egui::ScrollArea::vertical()
+                        .id_salt("ocr_result_scroll")
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| {
+                            ui.add_sized(
+                                ui.available_size(),
+                                egui::TextEdit::multiline(&mut text)
+                                    .id(egui::Id::new("ocr_result_text"))
+                                    .desired_width(f32::INFINITY)
+                                    .frame(false),
+                            );
+                        });
                 });
-        });
+        },
+    );
 }
 
 #[cfg(test)]
@@ -223,7 +231,37 @@ mod tests {
 
     use crate::ocr::{OcrErrorKind, OcrSession, OcrViewState};
 
-    use super::{OcrViewModel, copy_button_label};
+    use super::{OcrViewModel, copy_button_label, draw_result_card};
+
+    #[test]
+    fn long_result_card_does_not_consume_reserved_action_space() {
+        let context = egui::Context::default();
+        let mut input = egui::RawInput::default();
+        input.screen_rect = Some(egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(500.0, 500.0),
+        ));
+        let mut used_height = 0.0;
+
+        let _ = context.run(input, |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                let mut session = OcrSession::new();
+                session.state = OcrViewState::Result;
+                session.text = "很长的识别结果\n".repeat(200);
+                let mut model = OcrViewModel::from_session(&session);
+                let start_y = ui.next_widget_position().y;
+
+                draw_result_card(ui, &mut model, 200.0);
+
+                used_height = ui.next_widget_position().y - start_y;
+            });
+        });
+
+        assert!(
+            used_height <= 204.0,
+            "result card used {used_height} points instead of the requested 200"
+        );
+    }
 
     #[test]
     fn recognizing_keeps_text_and_disables_all_actions() {

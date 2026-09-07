@@ -1,196 +1,211 @@
-# Legend_Shot
+<h1 align="center">Legend Shot</h1>
 
-Legend_Shot 是一个截图工具，它允许用户捕获屏幕、进行注释和编辑截图。该工具具有直观的用户界面，提供多种功能如选择区域、绘制形状、添加文本以及保存或复制截图。
-## 设计和实现说明
-该截图应用使用跨平台截图库xcap实现，egui跨平台UI库进行标注，arboard操作系统剪贴板。
-<br>
-Windows和Linux下，启动时全屏启动，全屏灰色半透明蒙层，鼠标框选，画框选和移出半透明蒙层。
-<br>
-MacOS下，启动时全屏启动，因显示机制不同，直接覆盖半透明蒙层会全屏黑色，先截一张全屏的图，显示全屏图，再全屏灰色半透明蒙层，鼠标框选，画框选和移出半透明蒙层
+<p align="center">
+  <strong>A lightweight, cross-platform screenshot and annotation tool written in Rust.</strong><br />
+  Capture a region, annotate it, extract text with local OCR, then copy or save the result.
+</p>
 
-<br>
-画笔，矩形框选，移动，马赛克，序号，箭头都是利用egui画布功能实现
-<br>
-复制是复制到系统剪贴板，同时为了适配当前tauri应用无法复制图片到输入框，保存一份到系统临时目录中(Windows，Linux，MacOS各部相同)返回给vue，vue拿到图片发送，然后删除临时文件。后期输入框支持了可删除保存逻辑，复制完成后退出
-<br>
-保存是调起系统文件管理对话框，默认名字为时间戳screenshot_%Y-%m-%d_%H-%M-%S.png,可选择保存位置。保存完成后退出
-<br>
-## 功能特性
+<p align="center">
+  <a href="https://gitee.com/legendqi/legend_shot"><img alt="Version" src="https://img.shields.io/badge/version-0.1.0-orange.svg?style=flat-square" /></a>
+  <img alt="Platforms" src="https://img.shields.io/badge/platforms-macOS%20%7C%20Windows%20%7C%20Linux-4c8bf5.svg?style=flat-square" />
+  <img alt="Rust edition" src="https://img.shields.io/badge/Rust-edition%202024-dea584.svg?style=flat-square&logo=rust&logoColor=white" />
+  <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Mulan%20PSL%20v2-blue.svg?style=flat-square" /></a>
+</p>
 
-- **屏幕捕捉**：能够捕捉整个屏幕或选定区域。
-- **注释工具**：提供多种注释工具，包括笔刷、矩形、移动、马赛克等。
-- **文本输入**：允许在截图上添加自定义文本。
-- **保存与复制**：可以将截图保存到本地或复制到剪贴板。
+<p align="center">
+  <a href="#quickstart">Quickstart</a> ·
+  <a href="#features">Features</a> ·
+  <a href="#usage">Usage</a> ·
+  <a href="#building">Building</a> ·
+  <a href="#architecture">Architecture</a> ·
+  <a href="README.zh-CN.md">简体中文</a>
+</p>
 
-## 构建说明
+## What is Legend Shot?
 
-要构建此项目，请运行以下命令之一：
+Legend Shot is a desktop screenshot utility built with Rust, `egui`, and `xcap`. It opens a capture overlay over the current desktop, lets you select a region, and provides a compact toolbar for annotation, OCR, copying, and saving.
 
-- `./build.sh setup`：安装编译目标。
-- `./build.sh setup_targets`：设置构建目标。
-- `./build.sh build_linux_amd64`：为 Linux AMD64 构建。
-- `./build.sh build_linux_arm64`：为 Linux ARM64 构建。
-- `./build.sh build_windows`：为 Windows 构建。
-- `./build.sh build_macos_arm64`：为 macOS ARM64 构建。
-- `./build.sh build_macos_intel`：为 macOS Intel 构建。
-- `./build.sh build_all`：为所有平台构建。
+The project focuses on a fast capture workflow, native-resolution output, cross-platform behavior, and local processing. OCR inference runs locally after the required model files are available.
 
-## 功能说明
-- app_draw.rs 是监控鼠标和键盘的输入，同时绘制相关内容
-- app_main.rs 是主函数，启动程序
-- app_utils.rs 是一些工具函数
-- app_handle.rs 是处理截图结果处理，包括复制到系统剪切板和保存本地
-- app_toolbar.rs 是标注工具定义，可根据需要注释相关代码
-```rust
-    self.purple_icon_button(ui, Tool::MoveBox, ctx, MOVE_ICON, "move"); //移动
-    self.purple_icon_button(ui, Tool::Pen, ctx, PEN_ICON, "pen"); //画笔
-    self.purple_icon_button(ui, Tool::Rectangle, ctx, RECTANGLE_ICON, "rectangle"); //矩形
-    self.purple_icon_button(ui, Tool::Arrow, ctx, ARROW_ICON, "arrow"); //箭头
-    self.purple_icon_button(ui, Tool::Text, ctx, WORD_ICON, "word"); //文字
-    self.purple_icon_button(ui, Tool::Mosaic, ctx, MOSAIC_ICON, "mosaic"); //马赛克
-    self.purple_icon_button(ui, Tool::Number, ctx, NUMBER_ICON, "number"); //序号
-    self.custom_color_picker(ui, ctx); //颜色选择
-```
+## Project status
 
+Legend Shot is under active development. The current package version is `0.1.0`; public prebuilt installers have not been published yet. Build from source for development and evaluation. APIs, packaging, and platform integration may change before the first stable release.
 
-## 使用方法
+<a id="features"></a>
 
-启动应用后，您可以使用提供的工具进行截图和注释。使用工具栏中的按钮来选择不同的注释工具，添加文本，或者保存和复制截图。
+## Features
 
-## 贡献
+| Capability | Description |
+| --- | --- |
+| Region capture | Select any rectangular region from the current desktop with a dimmed overlay. |
+| Native-resolution output | Preserve source screenshot resolution, including Retina-scaled captures on macOS. |
+| Annotation toolbar | Move the selection, draw freehand strokes, rectangles, arrows, text, mosaics, and numbered markers. |
+| Multilingual text | Enter text through the operating system IME and render CJK text with an available system font. |
+| Local OCR | Extract text using PP-OCRv5 mobile detection and recognition models through `oar-ocr`. |
+| Copy and save | Copy the annotated image to the clipboard or save it as a PNG with a native file dialog. |
+| Cross-platform UI | Run the same capture workflow on macOS, Windows, and X11-based Linux desktops. |
+| Persistent preferences | Remember the last save directory and OCR result-window geometry. |
 
-欢迎贡献！如果您有兴趣改进 Legend_Shot，请查阅源代码并提交 Pull Request。
+## Preview
 
-## 许可证
+A clean product screenshot will be added before the first packaged release.
 
-此项目使用 MIT 许可证。详情请查看仓库中的 LICENSE 文件。
+<a id="quickstart"></a>
 
----
+## Quickstart
 
-## Ubuntu 支持 (v0.1.0)
+### Prerequisites
 
-本次更新主要针对 Ubuntu/Debian 平台进行了适配和优化。
+- A current stable Rust toolchain with Cargo.
+- Git and a native C/C++ build toolchain for your operating system.
+- Network access on the first OCR run if the PP-OCRv5 model assets are not already cached.
 
-### 安装 (Ubuntu/Debian)
-
-一键安装：
-```bash
-curl -sL https://gitee.com/andnnl/legend_shot/releases/download/v0.1.0/download-install.sh | sudo bash
-```
-
-或手动安装：
-```bash
-# 下载
-wget https://gitee.com/andnnl/legend_shot/releases/download/v0.1.0/legend_shot-0.1.0-x86_64
-
-# 安装
-chmod +x legend_shot-0.1.0-x86_64
-sudo mv legend_shot-0.1.0-x86_64 /usr/local/bin/legend_shot
-
-# 安装依赖
-sudo apt-get install -y fonts-noto-cjk xclip
-```
-
-### 从源码构建
+Linux additionally requires an X11 desktop session and `xclip` for image clipboard support. A CJK font such as Noto Sans CJK is recommended:
 
 ```bash
-git clone https://gitee.com/andnnl/legend_shot.git
+sudo apt update
+sudo apt install -y build-essential pkg-config xclip fonts-noto-cjk
+```
+
+### Run from source
+
+```bash
+git clone https://gitee.com/legendqi/legend_shot.git
 cd legend_shot
+cargo run
+```
+
+On macOS, grant screen-recording permission to Legend Shot—or to the terminal application when running with `cargo run`—under **System Settings → Privacy & Security → Screen & System Audio Recording**. Restart the application after changing the permission.
+
+<a id="usage"></a>
+
+## Usage
+
+1. Start Legend Shot.
+2. Drag across the screen to select a capture region.
+3. Use the toolbar to annotate, run OCR, copy, or save the selection.
+4. Finish a text annotation with `Ctrl+Enter` on Windows/Linux or `Command+Enter` on macOS.
+
+| Input | Action |
+| --- | --- |
+| Drag on the overlay | Select a screenshot region. |
+| Double-click inside the selection | Copy the selection and close the application. |
+| `Esc` | Cancel the current operation or close the capture overlay. |
+| Move | Reposition the selected region. |
+| Pen / Rectangle / Arrow | Draw visual annotations. |
+| Text | Add multilingual text using the system input method. |
+| Mosaic | Pixelate sensitive content. |
+| Number | Add sequential numbered markers. |
+| OCR | Recognize text in the selected region and open the result view. |
+| Copy / Save | Export the selected region with annotations. |
+
+## Command-line test mode
+
+Legend Shot includes a non-interactive capture mode for development and smoke testing:
+
+```bash
+# Capture a region and copy it to the clipboard
+cargo run -- --test "100,100,400,300" --action copy
+
+# Capture a region and save it to a file
+cargo run -- --test "100,100,400,300" --action save --output screenshot.png
+```
+
+The region format is `x,y,width,height` in screen coordinates. Supported actions are `copy` and `save`.
+
+<a id="building"></a>
+
+## Building
+
+### Native release build
+
+Build on the target operating system for the most reliable result:
+
+```bash
 cargo build --release
-sudo cp target/release/legend_shot /usr/local/bin/
 ```
 
-### 交叉编译 (glibc)
+The executable is written to `target/release/legend_shot` (`legend_shot.exe` on Windows).
 
-编译适用于 Ubuntu/Debian/Fedora 等主流发行版的 glibc 版本：
+### Build helper
+
+`build.sh` provides target-specific Cargo commands:
+
+| Command | Target |
+| --- | --- |
+| `./build.sh setup` | Install the configured Rust compilation targets. |
+| `./build.sh linux-amd64` | Linux x86_64. |
+| `./build.sh linux-arm64` | Linux ARM64. |
+| `./build.sh windows` | Windows x86_64. |
+| `./build.sh macos-arm64` | macOS Apple Silicon. |
+| `./build.sh macos-intel` | macOS Intel. |
+| `./build.sh all` | Run every configured target build. |
+
+Adding a Rust target alone is not always sufficient for desktop cross-compilation. Platform SDKs, native libraries, linkers, and OCR runtime dependencies must also be available. Native builds or CI runners for each operating system are recommended for release artifacts.
+
+## Platform notes
+
+| Platform | Notes |
+| --- | --- |
+| macOS | Requires Screen & System Audio Recording permission. Development builds launched from a terminal use the terminal's permission identity. |
+| Windows | Uses the native clipboard implementation through `arboard`; Microsoft YaHei or SimHei is used when available for CJK rendering. |
+| Linux | Currently targets X11. `xclip` is required for copying PNG images, and Noto Sans CJK is recommended for multilingual text. |
+
+## OCR and privacy
+
+Legend Shot uses the PP-OCRv5 mobile detection and recognition models provided through `oar-ocr`. Model files may be downloaded automatically on first use. Once loaded, OCR inference is performed locally; captured image data is not intentionally uploaded by Legend Shot.
+
+## Configuration
+
+The application stores `config.json` in the platform-standard configuration directory resolved by the Rust `directories` crate. It currently persists:
+
+- The last directory used to save a screenshot.
+- OCR result-window position and size.
+
+<a id="architecture"></a>
+
+## Architecture
+
+```text
+src/
+├── main.rs           # CLI parsing, startup, fonts, and platform window setup
+├── app_default.rs    # Application state, tools, annotations, and configuration
+├── app.rs            # Main egui update loop and view/window transitions
+├── app_draw.rs       # Screen rendering, selection, and pointer/keyboard input
+├── app_toolbar.rs    # Annotation toolbar and on-canvas text editor
+├── app_handle.rs     # Cropping, annotation export, clipboard, and file saving
+├── app_ocr.rs        # OCR capture flow and result-state transitions
+├── app_ocr_view.rs   # OCR result interface
+├── ocr.rs            # OCR session, worker thread, timeout, and error model
+├── ocr_oar.rs        # oar-ocr backend and PP-OCRv5 result normalization
+└── ui.rs             # Icons, textures, fonts, and image drawing utilities
+```
+
+The central `ScreenshotApp` state is extended through separate `impl` blocks. Screen capture and UI drawing use distinct coordinate systems so that logical window coordinates can be mapped back to native screenshot pixels.
+
+## Development and verification
 
 ```bash
-# 安装编译目标（如果跨架构）
-rustup target add x86_64-unknown-linux-gnu
-
-# 编译
-cargo build --release
-
-# 输出文件
-file target/release/legend_shot
-# ELF 64-bit LSB pie executable, x86-64, dynamically linked, interpreter /lib64/ld-linux-x86-64.so.2, stripped
+cargo build
+cargo test --all-targets
 ```
 
-### 交叉编译 (musl)
+Some tests construct the live screenshot application and therefore require the same screen-recording and accessibility permissions as a development run.
 
-使用 [cargo-zigbuild](https://github.com/rust-cross/cargo-zigbuild) 编译 musl 目标（适用于 Alpine Linux 等 musl 系统）：
+## Roadmap
 
-```bash
-# 安装 zig 和 cargo-zigbuild
-# 参考: https://ziglang.org/download/ 和 https://github.com/rust-cross/cargo-zigbuild
-pip install cargo-zigbuild
-rustup target add x86_64-unknown-linux-musl
+- Publish signed installers/packages for Windows, Linux, and macOS.
+- Add clean product screenshots and release documentation.
+- Expand automated platform testing and packaging in CI.
 
-# 编译
-RUSTFLAGS="-C target-feature=-crt-static" \
-  PKG_CONFIG_ALLOW_CROSS=1 \
-  PKG_CONFIG_SYSROOT_DIR=/ \
-  cargo zigbuild --release --target=x86_64-unknown-linux-musl
+## Contributing
 
-# 输出文件
-ls target/x86_64-unknown-linux-musl/release/legend_shot
-```
+Issues and pull requests are welcome at [gitee.com/legendqi/legend_shot](https://gitee.com/legendqi/legend_shot). For bug reports, include your operating system, desktop/display configuration, reproduction steps, and relevant terminal output.
 
-> **注意**：musl 二进制需要目标机器安装 musl 运行时（`sudo apt install musl` 或 Alpine Linux 自带）。
+## License
 
-### 配置快捷键
+Legend Shot is licensed under the [Mulan Permissive Software License, Version 2](LICENSE).
 
-#### GNOME (Ubuntu 默认)
+## Acknowledgements
 
-1. 打开 **设置** → **键盘** → **自定义快捷键**
-2. 点击 **添加快捷键**
-3. 填写：
-   - **名称**：Legend Shot
-   - **命令**：`legend_shot`
-   - **快捷键**：`Ctrl+Alt+A` (或自定义)
-
-#### KDE Plasma
-
-1. 打开 **系统设置** → **快捷键**
-2. 点击 **编辑** → **新建** → **全局快捷键** → **命令/URL**
-3. 设置触发器和命令
-
-### 操作说明
-
-| 操作 | 说明 |
-|------|------|
-| 鼠标拖拽 | 框选截图区域 |
-| 双击选区 | 复制到剪贴板并关闭 |
-| ESC | 取消并退出 |
-
-框选后工具栏出现在选区边缘，支持：选择、画笔、矩形、箭头、文字、马赛克、序号、保存、复制、退出。
-
-### 命令行参数
-
-```bash
-legend_shot --help
-
-# 测试模式
-legend_shot --test "100,100,400,300" --action copy
-legend_shot --test "100,100,400,300" --action save --output screenshot.png
-```
-
-### 系统要求
-
-- Ubuntu 18.04+ / Debian 10+
-- x86_64 架构
-- 依赖：`fonts-noto-cjk`, `xclip`, X11 图形环境
-
-### 配置文件
-
-配置保存在 `~/.config/legend_shot/config.json`，会记住上次保存目录。
-
-### 更新日志
-
-#### v0.1.0 (2026-04-01)
-
-- 支持 Ubuntu/Debian 平台
-- 集成 egui-file-dialog 替代 GTK 对话框
-- 添加中文支持 (NotoSansCJK 字体)
-- 配置持久化 (保存目录记忆)
-- 内置安装脚本
+Legend Shot is built with projects including [`egui`](https://github.com/emilk/egui), [`xcap`](https://github.com/nashaofu/xcap), [`arboard`](https://github.com/1Password/arboard), and [`oar-ocr`](https://github.com/GreatV/oar-ocr).
