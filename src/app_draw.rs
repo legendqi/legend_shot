@@ -7,6 +7,48 @@ use eframe::emath::{Pos2, Rect};
 use eframe::epaint::{Color32, Shape, Stroke, StrokeKind};
 
 impl ScreenshotApp {
+    pub(crate) fn render_display_viewport(&mut self, display_index: usize, ctx: &egui::Context) {
+        egui::CentralPanel::default()
+            .frame(egui::Frame::NONE)
+            .show(ctx, |ui| {
+                self.draw_display(display_index, ui);
+                ui.painter().rect_filled(
+                    ui.max_rect(),
+                    egui::CornerRadius::ZERO,
+                    Color32::from_rgba_unmultiplied(0, 0, 0, 100),
+                );
+            });
+    }
+
+    pub(crate) fn draw_display(&self, display_index: usize, ui: &mut egui::Ui) {
+        let Some(session) = &self.capture_session else {
+            return;
+        };
+        let Some(display) = session.displays.get(display_index) else {
+            return;
+        };
+        let Some(textures) = self.display_textures.get(display_index) else {
+            return;
+        };
+
+        for tile in textures {
+            let rect = Rect::from_min_size(
+                Pos2::new(
+                    tile.pixel_rect.x as f32 / display.geometry.pixel_scale.x,
+                    tile.pixel_rect.y as f32 / display.geometry.pixel_scale.y,
+                ),
+                egui::vec2(
+                    tile.pixel_rect.width as f32 / display.geometry.pixel_scale.x,
+                    tile.pixel_rect.height as f32 / display.geometry.pixel_scale.y,
+                ),
+            );
+            ui.put(
+                rect,
+                egui::Image::new(&tile.texture).fit_to_exact_size(rect.size()),
+            );
+        }
+    }
+
     pub(crate) fn draw_screens(&mut self, ui: &mut egui::Ui) {
         if self.display_textures_split.len() > 1
             && (self.screen_width > MAX_TEXTURE_SIZE as i32

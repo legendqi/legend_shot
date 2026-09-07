@@ -706,10 +706,10 @@ mod tests {
     }
 
     #[test]
-    fn capture_window_uses_platform_appropriate_fullscreen_mode() {
+    fn capture_coordinator_is_never_fullscreen() {
         let style = crate::app::capture_window_style();
 
-        assert_eq!(style.fullscreen, !cfg!(target_os = "macos"));
+        assert!(!style.fullscreen);
     }
 
     #[test]
@@ -726,16 +726,16 @@ mod tests {
     }
 
     #[test]
-    fn non_macos_capture_window_keeps_existing_fullscreen_behavior() {
+    fn non_macos_capture_coordinator_stays_hidden_and_windowless() {
         let style = crate::app::capture_window_style_for(false);
 
         assert!(!style.accessory_application);
-        assert!(style.fullscreen);
-        assert!(style.decorations);
-        assert!(style.resizable);
-        assert!(style.close_button);
-        assert!(style.minimize_button);
-        assert!(style.maximize_button);
+        assert!(!style.fullscreen);
+        assert!(!style.decorations);
+        assert!(!style.resizable);
+        assert!(!style.close_button);
+        assert!(!style.minimize_button);
+        assert!(!style.maximize_button);
     }
 
     #[test]

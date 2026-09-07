@@ -5,8 +5,50 @@ use crate::ocr::OcrViewState;
 use eframe::App;
 use egui::Visuals;
 
+use crate::display::CaptureSession;
+
 const OCR_WINDOW_SAVE_DELAY: Duration = Duration::from_millis(300);
 const OCR_WINDOW_MIN_SIZE: egui::Vec2 = egui::vec2(440.0, 320.0);
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct OverlayWindowSpec {
+    pub display_index: usize,
+    pub viewport_id: egui::ViewportId,
+    pub position: egui::Pos2,
+    pub size: egui::Vec2,
+    pub decorated: bool,
+    pub always_on_top: bool,
+}
+
+pub(crate) fn overlay_viewport_id(display_index: usize) -> egui::ViewportId {
+    egui::ViewportId::from_hash_of(("capture-overlay", display_index))
+}
+
+pub(crate) fn overlay_specs(session: &CaptureSession) -> Vec<OverlayWindowSpec> {
+    session
+        .displays
+        .iter()
+        .enumerate()
+        .map(|(display_index, display)| OverlayWindowSpec {
+            display_index,
+            viewport_id: overlay_viewport_id(display.geometry.session_index),
+            position: display.geometry.logical_bounds.min,
+            size: display.geometry.logical_bounds.size(),
+            decorated: false,
+            always_on_top: true,
+        })
+        .collect()
+}
+
+pub(crate) fn linux_x11_session_supported(
+    session_type: Option<&str>,
+    display: Option<&str>,
+) -> bool {
+    if session_type.is_some_and(|value| value.eq_ignore_ascii_case("wayland")) {
+        return false;
+    }
+    display.is_some_and(|value| !value.trim().is_empty())
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct CaptureWindowStyle {
@@ -24,26 +66,14 @@ pub(crate) fn capture_window_style() -> CaptureWindowStyle {
 }
 
 pub(crate) fn capture_window_style_for(is_macos: bool) -> CaptureWindowStyle {
-    if is_macos {
-        CaptureWindowStyle {
-            accessory_application: true,
-            fullscreen: false,
-            decorations: false,
-            resizable: false,
-            close_button: false,
-            minimize_button: false,
-            maximize_button: false,
-        }
-    } else {
-        CaptureWindowStyle {
-            accessory_application: false,
-            fullscreen: true,
-            decorations: true,
-            resizable: true,
-            close_button: true,
-            minimize_button: true,
-            maximize_button: true,
-        }
+    CaptureWindowStyle {
+        accessory_application: is_macos,
+        fullscreen: false,
+        decorations: false,
+        resizable: false,
+        close_button: false,
+        minimize_button: false,
+        maximize_button: false,
     }
 }
 
@@ -105,10 +135,8 @@ impl App for ScreenshotApp {
                 return;
             }
 
-            #[cfg(target_os = "macos")]
             if self.capture_reveal_state.take_reveal() {
-                ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
-                ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+                ctx.request_repaint();
             }
         }
 
@@ -126,10 +154,11 @@ impl App for ScreenshotApp {
         match self.app_view {
             AppView::Capture => {
                 if self.ocr_window_configured {
-                    self.restore_capture_window(ctx);
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+                    self.ocr_window_configured = false;
+                    self.capture_reveal_state.begin();
                 }
                 self.update_capture_view(ctx);
-                #[cfg(target_os = "macos")]
                 if self.capture_reveal_state.finish_hidden_frame() {
                     ctx.request_repaint();
                 }
@@ -189,6 +218,16 @@ impl ScreenshotApp {
             return;
         }
 
+        #[cfg(target_os = "linux")]
+        if !linux_x11_session_supported(
+            std::env::var("XDG_SESSION_TYPE").ok().as_deref(),
+            std::env::var("DISPLAY").ok().as_deref(),
+        ) {
+            eprintln!("当前版本仅支持 Linux X11，暂不支持 Wayland 截图。");
+            self.lifecycle.finish_capture();
+            return;
+        }
+
         if self.device_state.is_none() {
             self.device_state = device_query::DeviceState::checked_new();
         }
@@ -205,14 +244,8 @@ impl ScreenshotApp {
             return;
         }
         self.app_view = AppView::Capture;
-        self.ocr_window_configured = true;
-        #[cfg(target_os = "macos")]
+        self.ocr_window_configured = false;
         self.capture_reveal_state.begin();
-        #[cfg(not(target_os = "macos"))]
-        {
-            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
-            ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
-        }
         ctx.request_repaint();
     }
 
@@ -255,6 +288,7 @@ impl ScreenshotApp {
     }
 
     pub(crate) fn hide_capture_window(&mut self, ctx: &egui::Context) {
+        self.close_capture_viewports(ctx);
         match completion_disposition_for(cfg!(any(target_os = "macos", target_os = "linux"))) {
             CompletionDisposition::Hide => {
                 self.reset_capture_state();
@@ -317,6 +351,8 @@ impl ScreenshotApp {
 
     fn configure_ocr_window(&mut self, ctx: &egui::Context) {
         let state = self.config.ocr_window;
+        self.close_capture_viewports(ctx);
+        ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
         ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(false));
         ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(false));
         ctx.send_viewport_cmd(egui::ViewportCommand::Decorations(true));
@@ -422,55 +458,112 @@ impl ScreenshotApp {
     }
 
     fn update_capture_view(&mut self, ctx: &egui::Context) {
-        if self.display_textures_split.is_empty() {
-            self.screen_to_texture(ctx);
+        self.update_capture_viewports(ctx);
+        self.process_capture_signals(ctx);
+    }
+
+    fn update_capture_viewports(&mut self, ctx: &egui::Context) {
+        self.ensure_display_textures(ctx);
+        let Some(session) = &self.capture_session else {
+            return;
+        };
+        let specs = overlay_specs(session);
+        let visible = self.capture_reveal_state == crate::app_default::CaptureRevealState::Idle;
+        let mut close_requested = false;
+
+        for spec in specs {
+            let builder = egui::ViewportBuilder::default()
+                .with_title("Legend Shot")
+                .with_position(spec.position)
+                .with_inner_size(spec.size)
+                .with_decorations(spec.decorated)
+                .with_resizable(false)
+                .with_transparent(true)
+                .with_has_shadow(false)
+                .with_close_button(false)
+                .with_minimize_button(false)
+                .with_maximize_button(false)
+                .with_window_level(egui::WindowLevel::AlwaysOnTop)
+                .with_visible(visible);
+            close_requested |= ctx.show_viewport_immediate(
+                spec.viewport_id,
+                builder,
+                |viewport_ctx, _viewport_class| {
+                    self.render_display_viewport(spec.display_index, viewport_ctx);
+                    viewport_ctx.input(|input| input.viewport().close_requested())
+                },
+            );
         }
 
-        egui::CentralPanel::default()
-            .frame(egui::Frame::NONE)
-            .show(ctx, |ui| {
-                self.draw_screens(ui);
-                self.draw_overlay(ui);
-                self.draw_annotations(ui);
-                self.handle_input(ui, ctx);
-                self.draw_text_input(ui);
-                if self.show_toolbar {
-                    self.draw_toolbar(ctx);
-                }
-                let mut pending_action: Option<AppSignal> = None;
-                if let Some(signal_receiver) = self.signal_receiver.as_ref() {
-                    if let Ok(signal) = signal_receiver.lock().unwrap().try_recv() {
-                        match signal {
-                            AppSignal::Save => {
-                                pending_action = Some(AppSignal::Save);
-                            }
-                            AppSignal::Copy => {
-                                pending_action = Some(AppSignal::Copy);
-                            }
-                        }
-                    }
-                    if let Some(action) = pending_action.take() {
-                        match action {
-                            AppSignal::Save => {
-                                self.trigger_save_dialog(ctx);
-                            }
-                            AppSignal::Copy => {
-                                let _ = self.copy_to_clipboard();
-                                self.hide_capture_window(ctx);
-                            }
-                        }
-                    }
-                }
-            });
+        if close_requested {
+            self.hide_capture_window(ctx);
+        } else {
+            ctx.request_repaint_after(Duration::from_millis(16));
+        }
+    }
+
+    fn close_capture_viewports(&self, ctx: &egui::Context) {
+        let Some(session) = &self.capture_session else {
+            return;
+        };
+        for spec in overlay_specs(session) {
+            ctx.send_viewport_cmd_to(spec.viewport_id, egui::ViewportCommand::Close);
+        }
+    }
+
+    fn process_capture_signals(&mut self, ctx: &egui::Context) {
+        let pending_action = self.signal_receiver.as_ref().and_then(|receiver| {
+            receiver
+                .lock()
+                .ok()
+                .and_then(|receiver| receiver.try_recv().ok())
+        });
+        match pending_action {
+            Some(AppSignal::Save) => self.trigger_save_dialog(ctx),
+            Some(AppSignal::Copy) => {
+                let _ = self.copy_to_clipboard();
+                self.hide_capture_window(ctx);
+            }
+            None => {}
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use egui::{Pos2, Rect, Vec2};
+    use image::RgbaImage;
+
+    use crate::app_default::MAX_TEXTURE_SIZE;
+    use crate::display::{CaptureSession, CapturedDisplay, DisplayGeometry};
+
     use super::{
         CompletionDisposition, OCR_WINDOW_MIN_SIZE, capture_window_geometry_commands,
-        completion_disposition_for,
+        completion_disposition_for, linux_x11_session_supported, overlay_specs,
     };
+
+    fn test_session_with_bounds(bounds: &[(f32, f32, f32, f32)]) -> CaptureSession {
+        let displays = bounds
+            .iter()
+            .enumerate()
+            .map(|(index, &(x, y, width, height))| {
+                let pixels = (width as u32, height as u32);
+                let geometry = DisplayGeometry::new(
+                    index,
+                    Rect::from_min_size(Pos2::new(x, y), Vec2::new(width, height)),
+                    pixels,
+                )
+                .unwrap();
+                CapturedDisplay::from_image(
+                    geometry,
+                    RgbaImage::new(pixels.0, pixels.1),
+                    MAX_TEXTURE_SIZE as u32,
+                )
+                .unwrap()
+            })
+            .collect();
+        CaptureSession::new(displays).unwrap()
+    }
 
     #[test]
     fn capture_window_is_sized_before_it_moves_to_the_screen_origin() {
@@ -550,5 +643,33 @@ mod tests {
     #[test]
     fn ocr_window_minimum_size_supports_modern_layout() {
         assert_eq!(OCR_WINDOW_MIN_SIZE, egui::vec2(440.0, 320.0));
+    }
+
+    #[test]
+    fn overlay_specs_preserve_negative_monitor_origins() {
+        let session = test_session_with_bounds(&[
+            (-1440.0, 0.0, 1440.0, 900.0),
+            (0.0, -1080.0, 1920.0, 1080.0),
+        ]);
+
+        let specs = overlay_specs(&session);
+
+        assert_eq!(specs[0].position, egui::pos2(-1440.0, 0.0));
+        assert_eq!(specs[1].position, egui::pos2(0.0, -1080.0));
+        assert_ne!(specs[0].viewport_id, specs[1].viewport_id);
+        assert!(
+            specs
+                .iter()
+                .all(|spec| spec.always_on_top && !spec.decorated)
+        );
+    }
+
+    #[test]
+    fn linux_guard_rejects_wayland_and_requires_display() {
+        assert!(linux_x11_session_supported(Some("x11"), Some(":0")));
+        assert!(linux_x11_session_supported(None, Some(":0")));
+        assert!(!linux_x11_session_supported(Some("wayland"), Some(":0")));
+        assert!(!linux_x11_session_supported(None, None));
+        assert!(!linux_x11_session_supported(Some("x11"), Some("")));
     }
 }
