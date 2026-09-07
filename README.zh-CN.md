@@ -64,10 +64,11 @@ Linux 还需要 X11 桌面会话、GTK 3、`libxdo` 和 AppIndicator 实现。`x
 
 ```bash
 sudo apt update
-sudo apt install -y build-essential pkg-config xclip fonts-noto-cjk libgtk-3-dev libxdo-dev libayatana-appindicator3-dev
+sudo apt install -y build-essential pkg-config xclip fonts-noto-cjk libgtk-3-dev libxdo-dev libayatana-appindicator3-dev xdg-desktop-portal-gtk
 ```
 
 如果系统没有 `libayatana-appindicator3-dev`，可改用 `libappindicator3-dev`。桌面会话必须提供 AppIndicator/StatusNotifier 支持；GNOME 环境可能需要启用 AppIndicator 扩展。
+系统原生保存对话框通过 XDG Desktop Portal 打开。如果桌面环境尚未自带 Portal 后端，请安装 `xdg-desktop-portal-gtk`，也可以使用 GNOME/KDE 提供的对应后端。
 
 ### 从源码运行
 

@@ -64,10 +64,11 @@ Linux additionally requires an X11 desktop session, GTK 3, `libxdo`, and an AppI
 
 ```bash
 sudo apt update
-sudo apt install -y build-essential pkg-config xclip fonts-noto-cjk libgtk-3-dev libxdo-dev libayatana-appindicator3-dev
+sudo apt install -y build-essential pkg-config xclip fonts-noto-cjk libgtk-3-dev libxdo-dev libayatana-appindicator3-dev xdg-desktop-portal-gtk
 ```
 
 If `libayatana-appindicator3-dev` is unavailable, `libappindicator3-dev` is an acceptable alternative. The desktop session must expose AppIndicator/StatusNotifier support; GNOME installations may require the AppIndicator extension.
+The native save dialog is opened through XDG Desktop Portal. Install a portal backend such as `xdg-desktop-portal-gtk` (or the backend supplied by GNOME/KDE) if your desktop does not already provide one.
 
 ### Run from source
 

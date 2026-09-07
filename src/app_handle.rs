@@ -142,20 +142,22 @@ impl ScreenshotApp {
         &mut self,
         image: &ImageBuffer<Rgba<u8>, Vec<u8>>,
         path: &std::path::Path,
-    ) {
+    ) -> Result<(), String> {
         let format = match path.extension().and_then(|e| e.to_str()) {
             Some("jpg") | Some("jpeg") => image::ImageFormat::Jpeg,
             _ => image::ImageFormat::Png,
         };
 
-        if let Err(e) = image.save_with_format(path, format) {
-            eprintln!("保存失败: {}", e);
-        } else {
-            if let Some(parent) = path.parent() {
-                self.config.last_save_dir = Some(parent.to_path_buf());
-                self.save_config();
-            }
+        image
+            .save_with_format(path, format)
+            .map_err(|e| format!("保存失败: {e}"))?;
+
+        if let Some(parent) = path.parent() {
+            self.config.last_save_dir = Some(parent.to_path_buf());
+            self.save_config();
         }
+
+        Ok(())
     }
 
     pub fn copy_to_clipboard(&mut self) -> Result<(), String> {
@@ -1071,5 +1073,19 @@ impl ScreenshotApp {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn save_image_to_path_reports_write_failure() {
+        let mut app = crate::app_default::ScreenshotApp::default();
+        let image = image::RgbaImage::new(1, 1);
+        let directory_instead_of_file = std::env::temp_dir();
+
+        let result = app.save_image_to_path(&image, &directory_instead_of_file);
+
+        assert!(result.is_err());
     }
 }

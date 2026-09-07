@@ -260,12 +260,21 @@ impl ScreenshotApp {
         };
 
         if let Some(image) = self.pending_save_image.take() {
-            self.save_image_to_path(&image, &path);
-            self.hide_capture_window(ctx);
-            return true;
+            match self.save_image_to_path(&image, &path) {
+                Ok(()) => {
+                    self.hide_capture_window(ctx);
+                    return true;
+                }
+                Err(error) => {
+                    eprintln!("{error}");
+                    self.cancel_native_save_dialog(restore_toolbar);
+                    ctx.request_repaint();
+                    return false;
+                }
+            }
         }
 
-        self.show_toolbar = restore_toolbar;
+        self.cancel_native_save_dialog(restore_toolbar);
         ctx.request_repaint();
         false
     }
