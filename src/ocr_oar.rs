@@ -82,7 +82,10 @@ mod tests {
 
     #[test]
     fn normalize_detected_text_trims_surrounding_whitespace() {
-        assert_eq!(normalize_detected_text("  召唤师峡谷  \n"), Some("召唤师峡谷".to_string()));
+        assert_eq!(
+            normalize_detected_text("  召唤师峡谷  \n"),
+            Some("召唤师峡谷".to_string())
+        );
     }
 
     #[test]
