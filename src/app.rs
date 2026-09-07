@@ -274,6 +274,7 @@ impl ScreenshotApp {
         self.number_input = None;
         self.show_toolbar = false;
         self.toolbar_position = egui::Pos2::ZERO;
+        self.toolbar_placement = None;
         self.tool_bar_focused = false;
         self.text_input_finalized = false;
         self.pointer_snapshot = None;
@@ -473,6 +474,7 @@ impl ScreenshotApp {
         if let Some((snapshot, transition)) = self.poll_pointer() {
             self.update_global_pointer_interaction(snapshot, transition, ctx);
         }
+        self.tool_bar_focused = false;
         let visible = self.capture_reveal_state == crate::app_default::CaptureRevealState::Idle;
         let mut close_requested = false;
 

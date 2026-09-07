@@ -176,6 +176,52 @@ pub struct ComposedSelection {
     pub transform: OutputTransform,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ToolbarPlacement {
+    pub display_index: usize,
+    pub global_position: Pos2,
+}
+
+pub fn place_toolbar(
+    displays: &[DisplayGeometry],
+    selection: Rect,
+    endpoint: Pos2,
+    toolbar_size: Vec2,
+    margin: f32,
+) -> Result<ToolbarPlacement, String> {
+    if displays.is_empty() {
+        return Err("没有可用于放置工具栏的显示器".to_string());
+    }
+    if toolbar_size.x <= 0.0 || toolbar_size.y <= 0.0 {
+        return Err("工具栏尺寸必须大于零".to_string());
+    }
+    let (display_index, display) = displays
+        .iter()
+        .enumerate()
+        .min_by(|(_, left), (_, right)| {
+            distance_squared_to_rect(endpoint, left.logical_bounds)
+                .total_cmp(&distance_squared_to_rect(endpoint, right.logical_bounds))
+        })
+        .expect("non-empty displays checked above");
+    let bounds = display.logical_bounds;
+    let max_x = (bounds.max.x - toolbar_size.x).max(bounds.min.x);
+    let x = (selection.center().x - toolbar_size.x * 0.5).clamp(bounds.min.x, max_x);
+    let below = selection.max.y + margin;
+    let above = selection.min.y - toolbar_size.y - margin;
+    let preferred_y = if below + toolbar_size.y <= bounds.max.y {
+        below
+    } else {
+        above
+    };
+    let max_y = (bounds.max.y - toolbar_size.y).max(bounds.min.y);
+    let y = preferred_y.clamp(bounds.min.y, max_y);
+
+    Ok(ToolbarPlacement {
+        display_index,
+        global_position: Pos2::new(x, y),
+    })
+}
+
 impl CaptureSession {
     pub fn new(displays: Vec<CapturedDisplay>) -> Result<Self, String> {
         let mut display_iter = displays.iter();
@@ -654,5 +700,63 @@ mod tests {
         .unwrap_err();
 
         assert!(error.contains("100000000"));
+    }
+
+    #[test]
+    fn toolbar_uses_release_monitor_and_flips_above_at_bottom_edge() {
+        let displays = vec![
+            geometry(
+                0,
+                Rect::from_min_size(Pos2::ZERO, Vec2::new(1000.0, 800.0)),
+                (1000, 800),
+            ),
+            geometry(
+                1,
+                Rect::from_min_size(Pos2::new(1000.0, 0.0), Vec2::new(1000.0, 800.0)),
+                (1000, 800),
+            ),
+        ];
+        let placement = super::place_toolbar(
+            &displays,
+            Rect::from_min_max(Pos2::new(900.0, 600.0), Pos2::new(1800.0, 790.0)),
+            Pos2::new(1700.0, 790.0),
+            Vec2::new(300.0, 50.0),
+            8.0,
+        )
+        .unwrap();
+
+        assert_eq!(placement.display_index, 1);
+        assert!(placement.global_position.y < 600.0);
+        assert!(placement.global_position.x >= 1000.0);
+        assert!(placement.global_position.x + 300.0 <= 2000.0);
+    }
+
+    #[test]
+    fn toolbar_chooses_nearest_display_when_endpoint_is_in_gap() {
+        let displays = vec![
+            geometry(
+                0,
+                Rect::from_min_size(Pos2::ZERO, Vec2::new(100.0, 100.0)),
+                (100, 100),
+            ),
+            geometry(
+                1,
+                Rect::from_min_size(Pos2::new(200.0, 0.0), Vec2::new(100.0, 100.0)),
+                (100, 100),
+            ),
+        ];
+
+        assert_eq!(
+            super::place_toolbar(
+                &displays,
+                Rect::from_min_max(Pos2::ZERO, Pos2::new(250.0, 80.0)),
+                Pos2::new(180.0, 50.0),
+                Vec2::new(50.0, 20.0),
+                4.0,
+            )
+            .unwrap()
+            .display_index,
+            1
+        );
     }
 }

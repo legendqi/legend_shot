@@ -1,4 +1,5 @@
 use crate::app_default::{Annotation, AppSignal, ScreenshotApp, Tool};
+use crate::display::place_toolbar;
 use crate::ui::{
     ARROW_ICON, COPY_ICON, EXIT_ICON, MOSAIC_ICON, MOVE_ICON, NUMBER_ICON, PEN_ICON,
     RECTANGLE_ICON, SAVE_ICON, UNDO_ICON, WORD_ICON, load_texture_from_png, ocr_button,
@@ -53,6 +54,28 @@ fn draw_annotation_text_editor(
 }
 
 impl ScreenshotApp {
+    pub(crate) fn update_toolbar_placement(&mut self, endpoint: Pos2, ctx: &egui::Context) {
+        let Some(session) = &self.capture_session else {
+            self.toolbar_placement = None;
+            return;
+        };
+        let Some(selection) = self.selection_rect else {
+            self.toolbar_placement = None;
+            return;
+        };
+        let geometries = session
+            .displays
+            .iter()
+            .map(|display| display.geometry.clone())
+            .collect::<Vec<_>>();
+        let toolbar_size = Vec2::new(toolbar_width(ctx.style().spacing.item_spacing.x), 40.0);
+        self.toolbar_placement =
+            place_toolbar(&geometries, selection, endpoint, toolbar_size, 5.0).ok();
+        if let Some(placement) = self.toolbar_placement {
+            self.toolbar_position = placement.global_position;
+        }
+    }
+
     pub(crate) fn draw_annotations_for_display(&self, display_index: usize, ui: &mut Ui) {
         let Some(display) = self
             .capture_session
@@ -72,7 +95,50 @@ impl ScreenshotApp {
             for point in &mut local.points {
                 *point -= origin;
             }
-            self.draw_single_annotation(painter, &local);
+            if local.tool == Tool::Mosaic {
+                Self::draw_mosaic_annotation(
+                    painter,
+                    &local,
+                    &display.original_image,
+                    display.geometry.pixel_scale,
+                );
+            } else {
+                self.draw_single_annotation(painter, &local);
+            }
+        }
+    }
+
+    fn draw_mosaic_annotation(
+        painter: &egui::Painter,
+        annotation: &Annotation,
+        image: &image::RgbaImage,
+        pixel_scale: Vec2,
+    ) {
+        let (Some(&start), Some(&end)) = (annotation.points.first(), annotation.points.last())
+        else {
+            return;
+        };
+        let rect = Rect::from_two_pos(start, end);
+        let block_size = 4.0;
+        let cols = (rect.width() / block_size).ceil() as usize;
+        let rows = (rect.height() / block_size).ceil() as usize;
+        for row in 0..rows {
+            for col in 0..cols {
+                let block_min = Pos2::new(
+                    rect.min.x + col as f32 * block_size,
+                    rect.min.y + row as f32 * block_size,
+                );
+                let sample_x = (block_min.x * pixel_scale.x).floor().max(0.0) as u32;
+                let sample_y = (block_min.y * pixel_scale.y).floor().max(0.0) as u32;
+                if sample_x < image.width() && sample_y < image.height() {
+                    let pixel = image.get_pixel(sample_x, sample_y);
+                    painter.rect_filled(
+                        Rect::from_min_size(block_min, Vec2::splat(block_size)),
+                        egui::CornerRadius::ZERO,
+                        Color32::from_rgb(pixel[0], pixel[1], pixel[2]),
+                    );
+                }
+            }
         }
     }
 
@@ -109,39 +175,24 @@ impl ScreenshotApp {
             });
     }
 
-    pub(crate) fn draw_toolbar(&mut self, ctx: &egui::Context) {
-        self.tool_bar_focused = false;
-        if let Some(selection_rect) = self.selection_rect {
-            let toolbar_size = Vec2::new(toolbar_width(ctx.style().spacing.item_spacing.x), 40.0);
-            // 计算工具栏位置：在选择框右下角，并与选择框右对齐
-            let mut toolbar_pos = Pos2::new(
-                selection_rect.min.x,       // 左对齐：工具栏左侧与选择框左侧对齐
-                selection_rect.max.y + 5.0, // 在选择框下方，留 5.0 的间距
-            );
-            // 确保工具栏在屏幕内
-            let screen_rect = ctx.viewport_rect();
-
-            // 如果工具栏超出右边界，向左调整
-            if toolbar_pos.x + toolbar_size.x > screen_rect.max.x {
-                toolbar_pos.x = screen_rect.max.x - toolbar_size.x;
-            }
-
-            // 如果工具栏超出左边界，确保至少显示一部分
-            if toolbar_pos.x < screen_rect.min.x {
-                toolbar_pos.x = screen_rect.min.x + 10.0;
-            }
-
-            // 如果工具栏超出下边界，显示在选择框上方
-            if toolbar_pos.y + toolbar_size.y > screen_rect.max.y {
-                toolbar_pos.y = selection_rect.min.y - toolbar_size.y;
-            }
-
-            // 如果工具栏超出上边界，确保至少显示一部分
-            if toolbar_pos.y < screen_rect.min.y {
-                toolbar_pos.y = screen_rect.min.y + 10.0;
-            }
-
-            self.toolbar_position = toolbar_pos;
+    pub(crate) fn draw_toolbar_for_display(&mut self, display_index: usize, ctx: &egui::Context) {
+        if !self.show_toolbar {
+            return;
+        }
+        if let Some(placement) = self.toolbar_placement
+            && self.selection_rect.is_some()
+            && placement.display_index == display_index
+        {
+            let Some(display_origin) = self
+                .capture_session
+                .as_ref()
+                .and_then(|session| session.displays.get(display_index))
+                .map(|display| display.geometry.logical_bounds.min.to_vec2())
+            else {
+                return;
+            };
+            let toolbar_pos = placement.global_position - display_origin;
+            self.toolbar_position = placement.global_position;
             let toolbar_id = Id::new("annotation_toolbar");
             egui::Area::new(toolbar_id)
                 .fixed_pos(toolbar_pos)

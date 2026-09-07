@@ -9,7 +9,9 @@ use image::{ImageBuffer, Rgba};
 use serde::{Deserialize, Serialize};
 use xcap::Monitor;
 
-use crate::display::{CaptureSession, CapturedDisplay, DisplayGeometry, PixelRect};
+use crate::display::{
+    CaptureSession, CapturedDisplay, DisplayGeometry, PixelRect, ToolbarPlacement,
+};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub struct OcrWindowState {
@@ -285,6 +287,7 @@ pub struct ScreenshotApp {
     // UI 状态
     pub show_toolbar: bool,
     pub toolbar_position: Pos2,
+    pub toolbar_placement: Option<ToolbarPlacement>,
     // 修复：窗口尺寸
     pub window_rect: Rect,
 
@@ -360,6 +363,7 @@ impl Default for ScreenshotApp {
             tool_bar_focused: false,
             show_toolbar: false,
             toolbar_position: Pos2::ZERO,
+            toolbar_placement: None,
             window_rect: Rect::NOTHING,
             text_input_finalized: false,
             device_state: None,

@@ -42,6 +42,7 @@ impl ScreenshotApp {
                 self.draw_overlay_for_display(display_index, ui);
                 self.draw_annotations_for_display(display_index, ui);
                 self.draw_text_input_for_display(display_index, ui);
+                self.draw_toolbar_for_display(display_index, ctx);
             });
         self.handle_viewport_keyboard(ctx);
     }
@@ -188,12 +189,13 @@ impl ScreenshotApp {
                             }
                         } else {
                             self.show_toolbar = true;
-                            self.toolbar_position = rect.max;
+                            self.update_toolbar_placement(position, ctx);
                         }
                     }
                 } else if self.is_moving_box {
                     self.is_moving_box = false;
                     self.show_toolbar = true;
+                    self.update_toolbar_placement(position, ctx);
                     self.original_selection_rect = None;
                     self.mouse_original_selection_rect = None;
                 } else if self.current_tool != Tool::Text {
