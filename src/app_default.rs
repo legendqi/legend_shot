@@ -5,7 +5,6 @@ use device_query::{DeviceState, MousePosition};
 use eframe::emath::{Pos2, Rect};
 use eframe::epaint::{Color32, ColorImage};
 use egui::Id;
-use egui_file_dialog::FileDialog;
 use image::{GenericImageView, ImageBuffer, Rgba};
 use serde::{Deserialize, Serialize};
 use xcap::Monitor;
@@ -124,6 +123,37 @@ pub enum AppLifecycle {
     Exiting,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NativeSaveDialogState {
+    Idle,
+    WaitingForHiddenFrame { restore_toolbar: bool },
+    ReadyToOpen { restore_toolbar: bool },
+}
+
+impl NativeSaveDialogState {
+    pub fn begin(&mut self, restore_toolbar: bool) -> bool {
+        if *self != Self::Idle {
+            return false;
+        }
+        *self = Self::WaitingForHiddenFrame { restore_toolbar };
+        true
+    }
+
+    pub fn advance_frame(&mut self) -> Option<bool> {
+        match *self {
+            Self::Idle => None,
+            Self::WaitingForHiddenFrame { restore_toolbar } => {
+                *self = Self::ReadyToOpen { restore_toolbar };
+                None
+            }
+            Self::ReadyToOpen { restore_toolbar } => {
+                *self = Self::Idle;
+                Some(restore_toolbar)
+            }
+        }
+    }
+}
+
 impl AppLifecycle {
     pub fn begin_capture(&mut self) -> bool {
         if *self != Self::TrayIdle {
@@ -205,7 +235,7 @@ pub struct ScreenshotApp {
     pub signal_receiver: Option<Arc<Mutex<mpsc::Receiver<AppSignal>>>>,
 
     // 文件保存对话框
-    pub save_dialog: FileDialog,
+    pub native_save_dialog_state: NativeSaveDialogState,
     pub pending_save_image: Option<ImageBuffer<Rgba<u8>, Vec<u8>>>,
     pub config: AppConfig,
     pub config_path: PathBuf,
@@ -268,18 +298,7 @@ impl Default for ScreenshotApp {
             image_scale: 1.0,
             signal_sender: Some(Arc::new(Mutex::new(sender))),
             signal_receiver: Some(Arc::new(Mutex::new(receiver))),
-            save_dialog: FileDialog::new()
-                .title("保存截图")
-                .add_save_extension("PNG 图片", "png")
-                .add_save_extension("JPEG 图片", "jpg")
-                .default_save_extension("PNG 图片")
-                .default_file_name(&format!(
-                    "screenshot_{}",
-                    chrono::Local::now().format("%Y%m%d_%H%M%S")
-                ))
-                .as_modal(true)
-                .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-                .allow_file_overwrite(true),
+            native_save_dialog_state: NativeSaveDialogState::Idle,
             pending_save_image: None,
             config: AppConfig::default(),
             config_path: PathBuf::new(),
@@ -302,10 +321,6 @@ impl ScreenshotApp {
         let mut app = Self::default();
         app.config = config.clone();
         app.config_path = config_path;
-
-        if let Some(ref dir) = config.last_save_dir {
-            app.save_dialog.config_mut().initial_directory = dir.clone();
-        }
 
         app.signal_sender = Some(Arc::new(Mutex::new(sender)));
         app.signal_receiver = Some(Arc::new(Mutex::new(receiver)));
@@ -422,7 +437,27 @@ impl ScreenshotApp {
 
 #[cfg(test)]
 mod tests {
-    use super::{AppConfig, AppLifecycle, OcrWindowState, ScreenshotApp, Tool};
+    use super::{
+        AppConfig, AppLifecycle, NativeSaveDialogState, OcrWindowState, ScreenshotApp, Tool,
+    };
+
+    #[test]
+    fn native_save_dialog_waits_for_hidden_toolbar_frame_before_opening() {
+        let mut state = NativeSaveDialogState::Idle;
+
+        assert!(state.begin(true));
+        assert_eq!(state.advance_frame(), None);
+        assert_eq!(state.advance_frame(), Some(true));
+        assert_eq!(state, NativeSaveDialogState::Idle);
+    }
+
+    #[test]
+    fn native_save_dialog_rejects_duplicate_open_requests() {
+        let mut state = NativeSaveDialogState::Idle;
+
+        assert!(state.begin(false));
+        assert!(!state.begin(true));
+    }
 
     #[test]
     fn resident_lifecycle_starts_idle_and_rejects_reentrant_capture() {

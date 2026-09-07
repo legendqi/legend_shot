@@ -7,7 +7,7 @@ edition = "2024"
 arboard = "3.3"
 egui = { version = "0.33.2", default-features = false, features = ["default_fonts"] }
 eframe = { version = "0.33.2", default-features = false, features = ["glow", "accesskit", "x11"] }
-egui-file-dialog = { version = "0.12.0", default-features = false }
+rfd = "0.15.4"
 chrono = { version = "0.4.42", default-features = false, features = ["std", "clock"] }
 image = { version = "0.25.8", default-features = false, features = ["png", "jpeg"] }
 xcap = "0.9.4"

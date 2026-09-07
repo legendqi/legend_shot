@@ -93,6 +93,10 @@ impl App for ScreenshotApp {
             }
         }
 
+        if self.process_native_save_dialog(ctx) {
+            return;
+        }
+
         self.poll_ocr(Instant::now());
         if matches!(self.ocr_session.state, OcrViewState::Recognizing) {
             ctx.request_repaint_after(Duration::from_millis(100));
@@ -212,6 +216,7 @@ impl ScreenshotApp {
         self.is_selecting = false;
         self.is_moving_box = false;
         self.pending_save_image = None;
+        self.native_save_dialog_state = crate::app_default::NativeSaveDialogState::Idle;
         self.last_click_time = 0.0;
         self.last_click_pos = egui::Pos2::ZERO;
         self.ocr_session.cancel();
@@ -238,6 +243,36 @@ impl ScreenshotApp {
             runtime.shutdown();
         }
         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+    }
+
+    fn process_native_save_dialog(&mut self, ctx: &egui::Context) -> bool {
+        let Some(restore_toolbar) = self.native_save_dialog_state.advance_frame() else {
+            if self.native_save_dialog_state != crate::app_default::NativeSaveDialogState::Idle {
+                ctx.request_repaint();
+            }
+            return false;
+        };
+
+        let Some(path) = self.choose_native_save_path() else {
+            self.cancel_native_save_dialog(restore_toolbar);
+            ctx.request_repaint();
+            return false;
+        };
+
+        if let Some(image) = self.pending_save_image.take() {
+            self.save_image_to_path(&image, &path);
+            self.hide_capture_window(ctx);
+            return true;
+        }
+
+        self.show_toolbar = restore_toolbar;
+        ctx.request_repaint();
+        false
+    }
+
+    fn cancel_native_save_dialog(&mut self, restore_toolbar: bool) {
+        self.pending_save_image = None;
+        self.show_toolbar = restore_toolbar;
     }
 
     fn configure_ocr_window(&mut self, ctx: &egui::Context) {
@@ -379,7 +414,7 @@ impl ScreenshotApp {
                     if let Some(action) = pending_action.take() {
                         match action {
                             AppSignal::Save => {
-                                self.trigger_save_dialog();
+                                self.trigger_save_dialog(ctx);
                             }
                             AppSignal::Copy => {
                                 let _ = self.copy_to_clipboard();
@@ -389,15 +424,6 @@ impl ScreenshotApp {
                     }
                 }
             });
-
-        self.save_dialog.update(ctx);
-
-        if let Some(path) = self.save_dialog.take_picked() {
-            if let Some(image) = self.pending_save_image.take() {
-                self.save_image_to_path(&image, &path);
-                self.hide_capture_window(ctx);
-            }
-        }
     }
 }
 
@@ -419,6 +445,19 @@ mod tests {
         assert!(!app.tool_bar_focused);
         assert!(!app.text_input_finalized);
         assert_eq!(app.last_click_time, 0.0);
+    }
+
+    #[test]
+    fn cancelling_native_save_restores_toolbar_and_keeps_capture_open() {
+        let mut app = crate::app_default::ScreenshotApp::default();
+        app.show_toolbar = false;
+        app.pending_save_image = Some(image::RgbaImage::new(1, 1));
+
+        app.cancel_native_save_dialog(true);
+
+        assert!(app.show_toolbar);
+        assert!(app.pending_save_image.is_none());
+        assert_eq!(app.lifecycle, crate::app_default::AppLifecycle::Capturing);
     }
 
     #[test]

@@ -98,7 +98,7 @@ impl ScreenshotApp {
         Ok(())
     }
 
-    pub fn trigger_save_dialog(&mut self) {
+    pub fn trigger_save_dialog(&mut self, ctx: &egui::Context) {
         if self.selection_rect.is_none() {
             return;
         }
@@ -112,14 +112,30 @@ impl ScreenshotApp {
 
         if let Some(cropped_image) = self.crop_selection(self.selection_rect.unwrap(), &annotations)
         {
-            self.pending_save_image = Some(cropped_image);
-
-            if let Some(ref dir) = self.config.last_save_dir {
-                self.save_dialog.config_mut().initial_directory = dir.clone();
+            let restore_toolbar = self.show_toolbar;
+            if !self.native_save_dialog_state.begin(restore_toolbar) {
+                return;
             }
-
-            self.save_dialog.save_file();
+            self.pending_save_image = Some(cropped_image);
+            self.show_toolbar = false;
+            ctx.request_repaint();
         }
+    }
+
+    pub(crate) fn choose_native_save_path(&self) -> Option<std::path::PathBuf> {
+        let filename = format!(
+            "screenshot_{}.png",
+            chrono::Local::now().format("%Y%m%d_%H%M%S")
+        );
+        let mut dialog = rfd::FileDialog::new()
+            .set_title("保存截图")
+            .set_file_name(filename)
+            .add_filter("PNG 图片", &["png"])
+            .add_filter("JPEG 图片", &["jpg", "jpeg"]);
+        if let Some(directory) = &self.config.last_save_dir {
+            dialog = dialog.set_directory(directory);
+        }
+        dialog.save_file()
     }
 
     pub fn save_image_to_path(

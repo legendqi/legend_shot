@@ -195,7 +195,7 @@ impl ScreenshotApp {
                             let save_response =
                                 self.purple_icon_button(ui, Tool::Save, ctx, SAVE_ICON, "save");
                             if save_response.clicked() {
-                                self.trigger_save_dialog();
+                                self.trigger_save_dialog(ctx);
                             }
 
                             self.purple_icon_button(ui, Tool::Exit, ctx, EXIT_ICON, "exit")
