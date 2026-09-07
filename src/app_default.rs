@@ -41,7 +41,6 @@ pub struct AppConfig {
 
 #[derive(Debug, Clone, Copy)]
 pub enum AppSignal {
-    Save,
     Copy,
 }
 
@@ -56,7 +55,6 @@ pub enum Tool {
     Number,
     Mosaic,
     ColorPicker,
-    Ocr,
     Save,
     Copy,
     Exit,
@@ -243,10 +241,6 @@ pub struct ScreenshotApp {
     pub capture_reveal_state: CaptureRevealState,
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     pub(crate) tray_runtime: Option<crate::tray::TrayRuntime>,
-    pub is_first: bool,
-    pub screens: Vec<Monitor>,
-    pub screenshots: Vec<ImageBuffer<Rgba<u8>, Vec<u8>>>,
-    pub display_textures_split: Vec<(usize, usize, egui::TextureHandle)>,
     pub capture_session: Option<CaptureSession>,
     pub display_textures: Vec<Vec<DisplayTextureTile>>,
     pub original_selection_rect: Option<Rect>,
@@ -273,6 +267,7 @@ pub struct ScreenshotApp {
     pub show_toolbar: bool,
     pub toolbar_position: Pos2,
     pub toolbar_placement: Option<ToolbarPlacement>,
+    pub toolbar_rect_global: Option<Rect>,
     // 修复：窗口尺寸
     pub window_rect: Rect,
 
@@ -282,11 +277,6 @@ pub struct ScreenshotApp {
     pub pointer_snapshot: Option<PointerSnapshot>,
     pub last_primary_down: bool,
 
-    pub screen_width: i32,  // 屏幕宽度
-    pub screen_height: i32, // 屏幕高度
-
-    pub screen_scale: f32,
-    pub image_scale: f32,
     pub signal_sender: Option<Arc<Mutex<mpsc::Sender<AppSignal>>>>,
     pub signal_receiver: Option<Arc<Mutex<mpsc::Receiver<AppSignal>>>>,
 
@@ -318,10 +308,6 @@ impl Default for ScreenshotApp {
             capture_reveal_state: CaptureRevealState::Idle,
             #[cfg(any(target_os = "macos", target_os = "linux"))]
             tray_runtime: None,
-            is_first: true,
-            screens: Vec::new(),
-            screenshots: Vec::new(),
-            display_textures_split: Vec::new(),
             capture_session: None,
             display_textures: Vec::new(),
             original_selection_rect: None,
@@ -342,15 +328,12 @@ impl Default for ScreenshotApp {
             show_toolbar: false,
             toolbar_position: Pos2::ZERO,
             toolbar_placement: None,
+            toolbar_rect_global: None,
             window_rect: Rect::NOTHING,
             text_input_finalized: false,
             device_state: None,
             pointer_snapshot: None,
             last_primary_down: false,
-            screen_width: 0,
-            screen_height: 0,
-            screen_scale: 1.0,
-            image_scale: 1.0,
             signal_sender: Some(Arc::new(Mutex::new(sender))),
             signal_receiver: Some(Arc::new(Mutex::new(receiver))),
             native_save_dialog_state: NativeSaveDialogState::Idle,
@@ -411,17 +394,18 @@ impl ScreenshotApp {
 
     pub fn with_config(config: AppConfig, config_path: PathBuf) -> Self {
         let (sender, receiver) = mpsc::channel();
-        let mut app = Self::default();
-        app.config = config.clone();
-        app.config_path = config_path;
-
-        app.signal_sender = Some(Arc::new(Mutex::new(sender)));
-        app.signal_receiver = Some(Arc::new(Mutex::new(receiver)));
         #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-        {
-            app.device_state = Some(DeviceState::new());
+        let device_state = Some(DeviceState::new());
+        #[cfg(any(target_os = "macos", target_os = "linux"))]
+        let device_state = None;
+        Self {
+            config,
+            config_path,
+            signal_sender: Some(Arc::new(Mutex::new(sender))),
+            signal_receiver: Some(Arc::new(Mutex::new(receiver))),
+            device_state,
+            ..Self::default()
         }
-        app
     }
 
     pub fn save_config(&self) {
@@ -442,6 +426,7 @@ impl ScreenshotApp {
         self.capture_session = Some(session);
     }
 
+    #[cfg(test)]
     pub fn try_install_captured_displays(
         &mut self,
         displays: Vec<CapturedDisplay>,
@@ -452,6 +437,14 @@ impl ScreenshotApp {
     }
 
     pub fn capture_screens(&mut self) -> Result<(), String> {
+        #[cfg(target_os = "linux")]
+        if !crate::app::linux_x11_session_supported(
+            std::env::var("XDG_SESSION_TYPE").ok().as_deref(),
+            std::env::var("DISPLAY").ok().as_deref(),
+        ) {
+            return Err(crate::app::WAYLAND_UNSUPPORTED.to_string());
+        }
+
         let screens = Monitor::all().map_err(|error| format!("枚举显示器失败: {error}"))?;
         if screens.is_empty() {
             return Err("未检测到可截图的显示器".to_string());
@@ -491,18 +484,6 @@ impl ScreenshotApp {
 
         let session = CaptureSession::new(captured_displays)?;
 
-        self.screens = screens;
-        self.screenshots.clear();
-        for display in &session.displays {
-            for tile in &display.tiles {
-                self.screenshots.push(tile.image.clone());
-            }
-        }
-        if let Some(first) = session.displays.first() {
-            self.screen_width = first.geometry.pixel_size.0 as i32;
-            self.screen_height = first.geometry.pixel_size.1 as i32;
-            self.screen_scale = first.geometry.pixel_scale.x;
-        }
         self.install_capture_session(session);
         Ok(())
     }
@@ -560,32 +541,6 @@ impl ScreenshotApp {
                     .collect()
             })
             .collect();
-    }
-
-    pub fn get_combined_bounds(&self) -> Rect {
-        if let Some(session) = &self.capture_session {
-            return session.desktop_bounds;
-        }
-        if self.screens.is_empty() {
-            return Rect::NOTHING;
-        }
-
-        let mut min_x = i32::MAX;
-        let mut min_y = i32::MAX;
-        let mut max_x = i32::MIN;
-        let mut max_y = i32::MIN;
-
-        for screen in &self.screens {
-            min_x = min_x.min(screen.x().unwrap());
-            min_y = min_y.min(screen.y().unwrap());
-            max_x = max_x.max(screen.x().unwrap() + screen.width().unwrap() as i32);
-            max_y = max_y.max(screen.y().unwrap() + screen.height().unwrap() as i32);
-        }
-
-        Rect::from_min_max(
-            Pos2::new(min_x as f32, min_y as f32),
-            Pos2::new(max_x as f32, max_y as f32),
-        )
     }
 }
 
@@ -773,7 +728,6 @@ mod tests {
 
     #[test]
     fn ocr_is_an_action_not_an_annotation_tool() {
-        assert!(!Tool::Ocr.is_annotation_tool());
         assert!(Tool::Pen.is_annotation_tool());
     }
 

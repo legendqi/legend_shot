@@ -9,6 +9,10 @@ use crate::display::CaptureSession;
 
 const OCR_WINDOW_SAVE_DELAY: Duration = Duration::from_millis(300);
 const OCR_WINDOW_MIN_SIZE: egui::Vec2 = egui::vec2(440.0, 320.0);
+#[cfg(target_os = "linux")]
+pub(crate) const WAYLAND_UNSUPPORTED: &str = "当前版本仅支持 Linux X11，暂不支持 Wayland 截图。";
+pub(crate) const NO_MONITORS: &str = "未检测到可截图的显示器。";
+pub(crate) const POINTER_UNAVAILABLE: &str = "无法读取系统鼠标位置；请检查辅助功能或输入权限。";
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct OverlayWindowSpec {
@@ -40,6 +44,14 @@ pub(crate) fn overlay_specs(session: &CaptureSession) -> Vec<OverlayWindowSpec> 
         .collect()
 }
 
+pub(crate) fn overlay_ids_to_close(session: &CaptureSession) -> Vec<egui::ViewportId> {
+    overlay_specs(session)
+        .into_iter()
+        .map(|spec| spec.viewport_id)
+        .collect()
+}
+
+#[cfg(any(target_os = "linux", test))]
 pub(crate) fn linux_x11_session_supported(
     session_type: Option<&str>,
     display: Option<&str>,
@@ -77,6 +89,7 @@ pub(crate) fn capture_window_style_for(is_macos: bool) -> CaptureWindowStyle {
     }
 }
 
+#[cfg(test)]
 pub(crate) fn capture_window_geometry_commands(
     x: f32,
     y: f32,
@@ -183,6 +196,29 @@ impl App for ScreenshotApp {
 }
 
 impl ScreenshotApp {
+    pub(crate) fn clear_capture_session(&mut self) {
+        self.reset_capture_state();
+    }
+
+    pub(crate) fn finish_failed_capture(&mut self, resident_platform: bool) {
+        self.clear_capture_session();
+        if resident_platform {
+            self.lifecycle.finish_capture();
+        } else {
+            self.lifecycle.exit();
+        }
+    }
+
+    pub(crate) fn report_capture_start_failure(&mut self, message: &str, resident_platform: bool) {
+        eprintln!("Legend Shot 截图启动失败: {message}");
+        rfd::MessageDialog::new()
+            .set_title("Legend Shot")
+            .set_description(message)
+            .set_level(rfd::MessageLevel::Error)
+            .show();
+        self.finish_failed_capture(resident_platform);
+    }
+
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     pub(crate) fn install_tray(&mut self, tray_runtime: crate::tray::TrayRuntime) {
         self.tray_runtime = Some(tray_runtime);
@@ -223,8 +259,7 @@ impl ScreenshotApp {
             std::env::var("XDG_SESSION_TYPE").ok().as_deref(),
             std::env::var("DISPLAY").ok().as_deref(),
         ) {
-            eprintln!("当前版本仅支持 Linux X11，暂不支持 Wayland 截图。");
-            self.lifecycle.finish_capture();
+            self.report_capture_start_failure(WAYLAND_UNSUPPORTED, true);
             return;
         }
 
@@ -232,15 +267,18 @@ impl ScreenshotApp {
             self.device_state = device_query::DeviceState::checked_new();
         }
         if self.device_state.is_none() {
-            eprintln!("无法访问系统指针，请授予辅助功能权限后重试截图");
-            self.lifecycle.finish_capture();
+            self.report_capture_start_failure(POINTER_UNAVAILABLE, true);
             return;
         }
 
         self.reset_capture_state();
         if let Err(error) = self.capture_screens() {
-            eprintln!("从托盘启动截图失败: {error}");
-            self.lifecycle.finish_capture();
+            let message = if error.contains("未检测到") {
+                NO_MONITORS
+            } else {
+                &error
+            };
+            self.report_capture_start_failure(message, true);
             return;
         }
         self.app_view = AppView::Capture;
@@ -250,9 +288,6 @@ impl ScreenshotApp {
     }
 
     fn reset_capture_state(&mut self) {
-        self.screens.clear();
-        self.screenshots.clear();
-        self.display_textures_split.clear();
         self.capture_session = None;
         self.display_textures.clear();
         self.selection_rect = None;
@@ -268,6 +303,7 @@ impl ScreenshotApp {
         self.show_toolbar = false;
         self.toolbar_position = egui::Pos2::ZERO;
         self.toolbar_placement = None;
+        self.toolbar_rect_global = None;
         self.tool_bar_focused = false;
         self.text_input_finalized = false;
         self.pointer_snapshot = None;
@@ -287,7 +323,7 @@ impl ScreenshotApp {
         self.close_capture_viewports(ctx);
         match completion_disposition_for(cfg!(any(target_os = "macos", target_os = "linux"))) {
             CompletionDisposition::Hide => {
-                self.reset_capture_state();
+                self.clear_capture_session();
                 self.lifecycle.finish_capture();
                 ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
             }
@@ -418,41 +454,6 @@ impl ScreenshotApp {
         }
     }
 
-    fn restore_capture_window(&mut self, ctx: &egui::Context) {
-        let style = capture_window_style();
-        ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(style.fullscreen));
-        ctx.send_viewport_cmd(egui::ViewportCommand::Decorations(style.decorations));
-        ctx.send_viewport_cmd(egui::ViewportCommand::Resizable(style.resizable));
-        ctx.send_viewport_cmd(egui::ViewportCommand::EnableButtons {
-            close: style.close_button,
-            minimized: style.minimize_button,
-            maximize: style.maximize_button,
-        });
-
-        #[cfg(target_os = "macos")]
-        if let Some(screen) = self
-            .screens
-            .iter()
-            .find(|screen| screen.is_primary().unwrap_or(false))
-            .or_else(|| self.screens.first())
-        {
-            if let (Ok(x), Ok(y), Ok(width), Ok(height)) =
-                (screen.x(), screen.y(), screen.width(), screen.height())
-            {
-                for command in capture_window_geometry_commands(
-                    x as f32,
-                    y as f32,
-                    width as f32,
-                    height as f32,
-                ) {
-                    ctx.send_viewport_cmd(command);
-                }
-            }
-        }
-
-        self.ocr_window_configured = false;
-    }
-
     fn update_capture_view(&mut self, ctx: &egui::Context) {
         self.update_capture_viewports(ctx);
         self.process_capture_signals(ctx);
@@ -506,8 +507,8 @@ impl ScreenshotApp {
         let Some(session) = &self.capture_session else {
             return;
         };
-        for spec in overlay_specs(session) {
-            ctx.send_viewport_cmd_to(spec.viewport_id, egui::ViewportCommand::Close);
+        for viewport_id in overlay_ids_to_close(session) {
+            ctx.send_viewport_cmd_to(viewport_id, egui::ViewportCommand::Close);
         }
     }
 
@@ -519,7 +520,6 @@ impl ScreenshotApp {
                 .and_then(|receiver| receiver.try_recv().ok())
         });
         match pending_action {
-            Some(AppSignal::Save) => self.trigger_save_dialog(ctx),
             Some(AppSignal::Copy) => {
                 let _ = self.copy_to_clipboard();
                 self.hide_capture_window(ctx);
@@ -539,7 +539,8 @@ mod tests {
 
     use super::{
         CompletionDisposition, OCR_WINDOW_MIN_SIZE, capture_window_geometry_commands,
-        completion_disposition_for, linux_x11_session_supported, overlay_specs,
+        completion_disposition_for, linux_x11_session_supported, overlay_ids_to_close,
+        overlay_specs,
     };
 
     fn test_session_with_bounds(bounds: &[(f32, f32, f32, f32)]) -> CaptureSession {
@@ -614,15 +615,18 @@ mod tests {
         assert_eq!(app.last_click_time, 0.0);
         assert!(!app.last_primary_down);
         assert!(app.pointer_snapshot.is_none());
+        assert!(app.toolbar_rect_global.is_none());
         assert!(app.capture_session.is_none());
         assert!(app.display_textures.is_empty());
     }
 
     #[test]
     fn cancelling_native_save_restores_toolbar_and_keeps_capture_open() {
-        let mut app = crate::app_default::ScreenshotApp::default();
-        app.show_toolbar = false;
-        app.pending_save_image = Some(image::RgbaImage::new(1, 1));
+        let mut app = crate::app_default::ScreenshotApp {
+            show_toolbar: false,
+            pending_save_image: Some(image::RgbaImage::new(1, 1)),
+            ..Default::default()
+        };
 
         app.cancel_native_save_dialog(true);
 
@@ -678,5 +682,37 @@ mod tests {
         assert!(!linux_x11_session_supported(Some("wayland"), Some(":0")));
         assert!(!linux_x11_session_supported(None, None));
         assert!(!linux_x11_session_supported(Some("x11"), Some("")));
+    }
+
+    #[test]
+    fn capture_failure_returns_resident_app_to_idle_without_partial_session() {
+        let mut app = crate::app_default::ScreenshotApp {
+            lifecycle: crate::app_default::AppLifecycle::Capturing,
+            capture_session: None,
+            ..Default::default()
+        };
+
+        app.finish_failed_capture(true);
+
+        assert_eq!(app.lifecycle, crate::app_default::AppLifecycle::TrayIdle);
+        assert!(app.capture_session.is_none());
+        assert!(app.display_textures.is_empty());
+    }
+
+    #[test]
+    fn closing_capture_clears_all_overlay_ids() {
+        let mut app = crate::app_default::ScreenshotApp::default();
+        app.install_capture_session(test_session_with_bounds(&[
+            (0.0, 0.0, 100.0, 100.0),
+            (100.0, 0.0, 100.0, 100.0),
+        ]));
+        let ids = overlay_ids_to_close(app.capture_session.as_ref().unwrap());
+        assert_eq!(ids.len(), 2);
+        assert_eq!(ids[0], super::overlay_viewport_id(0));
+        assert_eq!(ids[1], super::overlay_viewport_id(1));
+
+        app.clear_capture_session();
+
+        assert!(app.capture_session.is_none());
     }
 }

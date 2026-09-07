@@ -236,11 +236,13 @@ mod tests {
     #[test]
     fn long_result_card_does_not_consume_reserved_action_space() {
         let context = egui::Context::default();
-        let mut input = egui::RawInput::default();
-        input.screen_rect = Some(egui::Rect::from_min_size(
-            egui::Pos2::ZERO,
-            egui::vec2(500.0, 500.0),
-        ));
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(500.0, 500.0),
+            )),
+            ..Default::default()
+        };
         let mut used_height = 0.0;
 
         let _ = context.run(input, |ctx| {

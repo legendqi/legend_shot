@@ -47,6 +47,7 @@ impl DisplayGeometry {
         })
     }
 
+    #[cfg(test)]
     pub fn global_to_local_rect(&self, global_rect: Rect) -> Rect {
         Rect::from_min_max(
             global_rect.min - self.logical_bounds.min.to_vec2(),
@@ -238,6 +239,7 @@ impl CaptureSession {
         })
     }
 
+    #[cfg(test)]
     pub fn display_at(&self, point: Pos2) -> Option<&CapturedDisplay> {
         self.displays
             .iter()

@@ -1,4 +1,3 @@
-use crate::app_default::MAX_TEXTURE_SIZE;
 use eframe::emath::Rect;
 use eframe::epaint::textures::TextureOptions;
 use egui::{Button, Color32, Response, Ui, Vec2};
@@ -111,99 +110,6 @@ pub fn ocr_button(ui: &mut Ui, ctx: &egui::Context) -> Response {
     );
 
     response.on_hover_text("识别选区文字")
-}
-
-#[cfg(test)]
-mod tests {
-    use eframe::epaint::Color32;
-    use image::{ImageBuffer, Rgba};
-
-    use super::{OCR_ICON, draw_annotation_text, draw_simple_char, draw_unicode_text};
-
-    #[test]
-    fn ocr_toolbar_action_has_a_valid_png_icon() {
-        let icon = image::load_from_memory(OCR_ICON).expect("OCR icon should be a valid image");
-
-        assert_eq!(icon.width(), icon.height());
-        assert!(icon.width() >= 16);
-    }
-
-    #[test]
-    fn bitmap_character_preserves_visual_size_at_two_x_output_scale() {
-        let mut one_x = ImageBuffer::from_pixel(40, 40, Rgba([0, 0, 0, 0]));
-        let mut two_x = ImageBuffer::from_pixel(80, 80, Rgba([0, 0, 0, 0]));
-
-        draw_simple_char(&mut one_x, 20, 20, '1', Color32::WHITE, 1);
-        draw_simple_char(&mut two_x, 40, 40, '1', Color32::WHITE, 2);
-
-        let one_x_pixels = one_x.pixels().filter(|pixel| pixel[3] != 0).count();
-        let two_x_pixels = two_x.pixels().filter(|pixel| pixel[3] != 0).count();
-        assert_eq!(two_x_pixels, one_x_pixels * 4);
-    }
-
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn unicode_text_renderer_draws_chinese_glyphs() {
-        let font = std::fs::read("/System/Library/Fonts/STHeiti Light.ttc")
-            .expect("macOS CJK system font should exist");
-        let mut image = ImageBuffer::from_pixel(120, 60, Rgba([0, 0, 0, 0]));
-
-        assert!(draw_unicode_text(
-            &mut image,
-            4,
-            4,
-            "中文",
-            Color32::WHITE,
-            24.0,
-            &font,
-        ));
-        assert!(image.pixels().any(|pixel| pixel[3] != 0));
-    }
-
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn annotation_text_uses_the_available_cjk_font() {
-        let mut image = ImageBuffer::from_pixel(120, 60, Rgba([0, 0, 0, 0]));
-
-        assert!(draw_annotation_text(
-            &mut image,
-            4,
-            4,
-            "中文",
-            Color32::WHITE,
-            1.0,
-        ));
-        assert!(image.pixels().any(|pixel| pixel[3] != 0));
-    }
-}
-
-pub fn get_compress_image(
-    width: u32,
-    height: u32,
-    image: ImageBuffer<Rgba<u8>, Vec<u8>>,
-) -> ImageBuffer<Rgba<u8>, Vec<u8>> {
-    let new_width;
-    let new_height;
-    let max_size = MAX_TEXTURE_SIZE as u32;
-    if width > max_size || height > max_size {
-        if width > height {
-            new_width = max_size;
-            new_height = (height as f32 * max_size as f32 / width as f32) as u32;
-        } else {
-            new_height = max_size;
-            new_width = (width as f32 * max_size as f32 / height as f32) as u32;
-        }
-    } else {
-        new_width = width;
-        new_height = height;
-    }
-    let resized_img = image::imageops::resize(
-        &image,
-        new_width,
-        new_height,
-        image::imageops::FilterType::Lanczos3,
-    );
-    resized_img
 }
 
 pub fn load_texture_from_png(
@@ -1388,5 +1294,69 @@ pub fn draw_simple_char(
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use eframe::epaint::Color32;
+    use image::{ImageBuffer, Rgba};
+
+    use super::{OCR_ICON, draw_annotation_text, draw_simple_char, draw_unicode_text};
+
+    #[test]
+    fn ocr_toolbar_action_has_a_valid_png_icon() {
+        let icon = image::load_from_memory(OCR_ICON).expect("OCR icon should be a valid image");
+
+        assert_eq!(icon.width(), icon.height());
+        assert!(icon.width() >= 16);
+    }
+
+    #[test]
+    fn bitmap_character_preserves_visual_size_at_two_x_output_scale() {
+        let mut one_x = ImageBuffer::from_pixel(40, 40, Rgba([0, 0, 0, 0]));
+        let mut two_x = ImageBuffer::from_pixel(80, 80, Rgba([0, 0, 0, 0]));
+
+        draw_simple_char(&mut one_x, 20, 20, '1', Color32::WHITE, 1);
+        draw_simple_char(&mut two_x, 40, 40, '1', Color32::WHITE, 2);
+
+        let one_x_pixels = one_x.pixels().filter(|pixel| pixel[3] != 0).count();
+        let two_x_pixels = two_x.pixels().filter(|pixel| pixel[3] != 0).count();
+        assert_eq!(two_x_pixels, one_x_pixels * 4);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn unicode_text_renderer_draws_chinese_glyphs() {
+        let font = std::fs::read("/System/Library/Fonts/STHeiti Light.ttc")
+            .expect("macOS CJK system font should exist");
+        let mut image = ImageBuffer::from_pixel(120, 60, Rgba([0, 0, 0, 0]));
+
+        assert!(draw_unicode_text(
+            &mut image,
+            4,
+            4,
+            "中文",
+            Color32::WHITE,
+            24.0,
+            &font,
+        ));
+        assert!(image.pixels().any(|pixel| pixel[3] != 0));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn annotation_text_uses_the_available_cjk_font() {
+        let mut image = ImageBuffer::from_pixel(120, 60, Rgba([0, 0, 0, 0]));
+
+        assert!(draw_annotation_text(
+            &mut image,
+            4,
+            4,
+            "中文",
+            Color32::WHITE,
+            1.0,
+        ));
+        assert!(image.pixels().any(|pixel| pixel[3] != 0));
     }
 }

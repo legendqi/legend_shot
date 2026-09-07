@@ -73,6 +73,10 @@ impl ScreenshotApp {
             place_toolbar(&geometries, selection, endpoint, toolbar_size, 5.0).ok();
         if let Some(placement) = self.toolbar_placement {
             self.toolbar_position = placement.global_position;
+            self.toolbar_rect_global =
+                Some(Rect::from_min_size(placement.global_position, toolbar_size));
+        } else {
+            self.toolbar_rect_global = None;
         }
     }
 
@@ -247,15 +251,14 @@ impl ScreenshotApp {
                                 Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
                                 Color32::WHITE,
                             );
-                            if undo_response.clicked() {
-                                if let Some(popped) = self.annotations.pop() {
-                                    if popped.tool == Tool::Number {
-                                        self.number_input = match self.number_input {
-                                            Some(n) if n > 1 => Some(n - 1),
-                                            _ => None,
-                                        };
-                                    }
-                                }
+                            if undo_response.clicked()
+                                && let Some(popped) = self.annotations.pop()
+                                && popped.tool == Tool::Number
+                            {
+                                self.number_input = match self.number_input {
+                                    Some(n) if n > 1 => Some(n - 1),
+                                    _ => None,
+                                };
                             }
 
                             // 操作： OCR，复制，保存，退出
@@ -263,12 +266,11 @@ impl ScreenshotApp {
                             if ocr_response.hovered() || ocr_response.has_focus() {
                                 self.tool_bar_focused = true;
                             }
-                            if ocr_response.clicked() {
-                                if let Err(error) =
+                            if ocr_response.clicked()
+                                && let Err(error) =
                                     self.submit_ocr_for_current_selection(Instant::now())
-                                {
-                                    eprintln!("OCR 提交失败: {error}");
-                                }
+                            {
+                                eprintln!("OCR 提交失败: {error}");
                             }
 
                             if self
@@ -426,51 +428,6 @@ impl ScreenshotApp {
         response
     }
 
-    pub(crate) fn draw_annotations(&self, ui: &mut Ui) {
-        let painter = ui.painter();
-
-        for annotation in &self.annotations {
-            if annotation.tool == Tool::Mosaic {
-                self.draw_single_annotation(painter, annotation);
-            }
-        }
-        for annotation in &self.annotations {
-            if annotation.tool != Tool::Mosaic {
-                self.draw_single_annotation(painter, annotation);
-            }
-        }
-
-        if let Some(annotation) = &self.current_annotation {
-            self.draw_single_annotation(painter, annotation);
-        }
-    }
-
-    // 文本输入
-    pub(crate) fn draw_text_input(&mut self, ui: &mut Ui) {
-        if let Some(text_state) = &mut self.text_input
-            && text_state.is_active
-        {
-            let max_x = self.selection_end.x;
-            let current_x = text_state.position.x;
-            let desired_width = (max_x - current_x).abs().max(10.0);
-
-            // 创建文本输入区域
-            egui::Area::new(text_state.widget_id)
-                .fixed_pos(text_state.position)
-                .order(egui::Order::Foreground)
-                .show(ui.ctx(), |ui| {
-                    egui::Frame::NONE.show(ui, |ui| {
-                        draw_annotation_text_editor(
-                            ui,
-                            text_state,
-                            desired_width,
-                            self.annotation_color,
-                        )
-                    });
-                });
-        }
-    }
-
     fn draw_single_annotation(&self, painter: &egui::Painter, annotation: &Annotation) {
         let min_points = if annotation.tool == Tool::Mosaic {
             1
@@ -561,45 +518,6 @@ impl ScreenshotApp {
                     }
                 }
             }
-            Tool::Mosaic => {
-                if let (Some(&start), Some(&end)) =
-                    (annotation.points.first(), annotation.points.last())
-                {
-                    let rect = Rect::from_two_pos(start, end);
-
-                    let block_size = 4.0;
-
-                    let width = rect.width();
-                    let height = rect.height();
-                    let cols = (width / block_size).ceil() as usize;
-                    let rows = (height / block_size).ceil() as usize;
-                    let tex = &self.screenshots[0];
-                    for row in 0..rows {
-                        for col in 0..cols {
-                            let block_rect = Rect::from_min_size(
-                                Pos2::new(
-                                    rect.min.x + col as f32 * block_size,
-                                    rect.min.y + row as f32 * block_size,
-                                ),
-                                Vec2::new(block_size, block_size),
-                            );
-                            let sample_x =
-                                ((rect.min.x + col as f32 * block_size) * self.screen_scale) as u32;
-                            let sample_y =
-                                ((rect.min.y + row as f32 * block_size) * self.screen_scale) as u32;
-                            if sample_x < tex.width() && sample_y < tex.height() {
-                                let pixel = tex.get_pixel(sample_x, sample_y);
-                                let current_color = Color32::from_rgb(pixel[0], pixel[1], pixel[2]);
-                                painter.rect_filled(
-                                    block_rect,
-                                    egui::CornerRadius::ZERO,
-                                    current_color,
-                                );
-                            }
-                        }
-                    }
-                }
-            }
             Tool::Number => {
                 if let (Some(number), Some(&pos)) = (annotation.number, annotation.points.first()) {
                     let number_str = number.to_string();
@@ -633,12 +551,14 @@ mod tests {
     fn unfocused_annotation_editor_requests_window_focus() {
         let context = egui::Context::default();
         let mut state = TextInputState::new(egui::Pos2::ZERO);
-        let mut input = egui::RawInput::default();
-        input.focused = false;
-        input.screen_rect = Some(egui::Rect::from_min_size(
-            egui::Pos2::ZERO,
-            egui::vec2(300.0, 100.0),
-        ));
+        let input = egui::RawInput {
+            focused: false,
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(300.0, 100.0),
+            )),
+            ..Default::default()
+        };
 
         let output = context.run(input, |ctx| {
             egui::CentralPanel::default().show(ctx, |ui| {
@@ -664,13 +584,15 @@ mod tests {
         let context = egui::Context::default();
         let mut state = TextInputState::new(egui::pos2(20.0, 20.0));
         let run_frame = |events: Vec<egui::Event>, state: &mut TextInputState| {
-            let mut input = egui::RawInput::default();
-            input.focused = true;
-            input.screen_rect = Some(egui::Rect::from_min_size(
-                egui::Pos2::ZERO,
-                egui::vec2(300.0, 100.0),
-            ));
-            input.events = events;
+            let input = egui::RawInput {
+                focused: true,
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(300.0, 100.0),
+                )),
+                events,
+                ..Default::default()
+            };
             let _ = context.run(input, |ctx| {
                 egui::CentralPanel::default().show(ctx, |_ui| {
                     egui::Area::new(state.widget_id)
@@ -693,12 +615,14 @@ mod tests {
         let context = egui::Context::default();
         let mut state = TextInputState::new(egui::Pos2::ZERO);
         let run_frame = |events: Vec<egui::Event>, state: &mut TextInputState| {
-            let mut input = egui::RawInput::default();
-            input.screen_rect = Some(egui::Rect::from_min_size(
-                egui::Pos2::ZERO,
-                egui::vec2(300.0, 100.0),
-            ));
-            input.events = events;
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(300.0, 100.0),
+                )),
+                events,
+                ..Default::default()
+            };
             let _ = context.run(input, |ctx| {
                 egui::CentralPanel::default().show(ctx, |_ui| {
                     egui::Area::new(state.widget_id)
@@ -745,7 +669,6 @@ mod tests {
 
     #[test]
     fn ocr_and_other_actions_are_not_persistent_toolbar_tools() {
-        assert!(!is_persistent_toolbar_tool(Tool::Ocr));
         assert!(!is_persistent_toolbar_tool(Tool::Copy));
         assert!(!is_persistent_toolbar_tool(Tool::Save));
         assert!(!is_persistent_toolbar_tool(Tool::Exit));

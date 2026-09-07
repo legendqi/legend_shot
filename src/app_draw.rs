@@ -3,7 +3,7 @@ use crate::app_default::{
 };
 use crate::ocr::OcrViewState;
 use eframe::emath::{Pos2, Rect};
-use eframe::epaint::{Color32, Shape, Stroke, StrokeKind};
+use eframe::epaint::{Color32, Stroke, StrokeKind};
 
 pub(crate) fn global_rect_to_display_local(
     display_bounds: Rect,
@@ -104,6 +104,13 @@ impl ScreenshotApp {
         let position = snapshot.global_position;
         match transition {
             PrimaryButtonTransition::Pressed => {
+                if self.show_toolbar
+                    && self
+                        .toolbar_rect_global
+                        .is_some_and(|rect| rect.contains(position))
+                {
+                    return;
+                }
                 let current_time = ctx.input(|input| input.time);
                 if self
                     .selection_rect
@@ -317,6 +324,8 @@ impl ScreenshotApp {
 mod tests {
     use eframe::emath::{Pos2, Rect, Vec2};
 
+    use crate::app_default::{PointerSnapshot, PrimaryButtonTransition, ScreenshotApp, Tool};
+
     use super::{clamp_translated_rect, global_rect_to_display_local};
 
     #[test]
@@ -339,5 +348,35 @@ mod tests {
 
         assert_eq!(moved.size(), original.size());
         assert_eq!(moved.max, desktop.max);
+    }
+
+    #[test]
+    fn toolbar_press_does_not_start_selection_interaction() {
+        let mut app = ScreenshotApp {
+            current_tool: Tool::MoveBox,
+            selection_rect: Some(Rect::from_min_max(
+                Pos2::new(0.0, 0.0),
+                Pos2::new(500.0, 500.0),
+            )),
+            show_toolbar: true,
+            toolbar_rect_global: Some(Rect::from_min_size(
+                Pos2::new(100.0, 100.0),
+                Vec2::new(300.0, 40.0),
+            )),
+            ..Default::default()
+        };
+
+        app.update_global_pointer_interaction(
+            PointerSnapshot {
+                global_position: Pos2::new(120.0, 120.0),
+                primary_down: true,
+            },
+            PrimaryButtonTransition::Pressed,
+            &egui::Context::default(),
+        );
+
+        assert!(!app.is_moving_box);
+        assert!(!app.is_selecting);
+        assert!(app.show_toolbar);
     }
 }

@@ -46,6 +46,20 @@ Legend Shot is under active development. The current package version is `0.1.0`;
 | Cross-platform UI | Run the same capture workflow on macOS, Windows, and X11-based Linux desktops. |
 | Persistent preferences | Remember the last save directory and OCR result-window geometry. |
 
+## Multi-monitor support
+
+Legend Shot's multi-monitor path is designed for selections spanning displays on Windows, macOS, and Linux X11, including negative coordinates and different scale factors. Linux Wayland is not supported yet; run under an X11 session. Desktop gaps inside a cross-monitor selection are exported as transparent pixels.
+
+Multi-monitor support is currently experimental until the native release matrix below has been completed on all three platforms. In particular, Windows mixed-DPI window/input alignment still requires native validation before it is considered release-ready.
+
+Release smoke-test matrix:
+
+- Single display; left/right and above/below arrangements; negative display origins.
+- Mixed-DPI displays, cross-gap selections, and primary-display changes.
+- Pen, rectangle, arrow, text, mosaic, and numbered annotations across display boundaries.
+- Save, copy, OCR, double-click copy, and `Esc` cancellation.
+- Disconnect and reconnect an external display between separate capture sessions.
+
 ## Preview
 
 A clean product screenshot will be added before the first packaged release.
@@ -85,7 +99,7 @@ On macOS, the first Capture request asks for screen-recording permission for Leg
 ## Usage
 
 1. Start Legend Shot. On macOS/Linux, open its top-bar menu and choose **Capture**; the only other menu item is **Exit**. Windows enters capture immediately.
-2. Drag across the screen to select a capture region.
+2. Drag across one or more screens to select a capture region.
 3. Use the toolbar to annotate, run OCR, copy, or save the selection.
 4. Finish a text annotation with `Ctrl+Enter` on Windows/Linux or `Command+Enter` on macOS.
 5. On macOS/Linux, copy, save, or `Esc` returns to the tray; choose **Exit** from the tray menu to terminate the process. Windows exits after completing or cancelling capture.

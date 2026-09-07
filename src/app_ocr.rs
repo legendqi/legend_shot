@@ -235,11 +235,13 @@ mod tests {
     fn queued_current_response_wins_over_deadline_timeout() {
         let (_request_tx, request_rx) = mpsc::channel();
         let (response_tx, response_rx) = mpsc::channel();
-        let mut app = ScreenshotApp::default();
-        app.ocr_worker = Some(OcrWorker {
-            request_tx: _request_tx,
-            response_rx,
-        });
+        let mut app = ScreenshotApp {
+            ocr_worker: Some(OcrWorker {
+                request_tx: _request_tx,
+                response_rx,
+            }),
+            ..Default::default()
+        };
         app.ocr_session.text = "旧文本".to_string();
         let now = Instant::now();
         let request_id = app.ocr_session.submit(now);
@@ -263,11 +265,13 @@ mod tests {
         let (request_tx, request_rx) = mpsc::channel();
         drop(request_rx);
         let (_response_tx, response_rx) = mpsc::channel();
-        let mut app = ScreenshotApp::default();
-        app.ocr_worker = Some(OcrWorker {
-            request_tx,
-            response_rx,
-        });
+        let mut app = ScreenshotApp {
+            ocr_worker: Some(OcrWorker {
+                request_tx,
+                response_rx,
+            }),
+            ..Default::default()
+        };
         app.ocr_session.text = "旧文本".to_string();
 
         let result = app.submit_ocr_image(RgbaImage::new(1, 1), Instant::now());

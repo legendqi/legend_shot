@@ -677,17 +677,23 @@ impl ScreenshotApp {
                     }
                 }
 
-                if count > 0 {
-                    let avg_r = (r_sum / count) as u8;
-                    let avg_g = (g_sum / count) as u8;
-                    let avg_b = (b_sum / count) as u8;
+                let (Some(avg_r), Some(avg_g), Some(avg_b)) = (
+                    r_sum.checked_div(count),
+                    g_sum.checked_div(count),
+                    b_sum.checked_div(count),
+                ) else {
+                    continue;
+                };
 
-                    // 用平均颜色填充整个块
-                    for y in block_y..block_end_y {
-                        for x in block_x..block_end_x {
-                            if x < image.width() && y < image.height() {
-                                image.put_pixel(x, y, Rgba([avg_r, avg_g, avg_b, 255]));
-                            }
+                // 用平均颜色填充整个块
+                for y in block_y..block_end_y {
+                    for x in block_x..block_end_x {
+                        if x < image.width() && y < image.height() {
+                            image.put_pixel(
+                                x,
+                                y,
+                                Rgba([avg_r as u8, avg_g as u8, avg_b as u8, 255]),
+                            );
                         }
                     }
                 }

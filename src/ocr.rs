@@ -155,7 +155,7 @@ impl OcrSession {
 
     pub fn expire_if_needed(&mut self, now: Instant) -> bool {
         if !matches!(self.state, OcrViewState::Recognizing)
-            || !self.deadline.is_some_and(|deadline| now >= deadline)
+            || self.deadline.is_none_or(|deadline| now < deadline)
         {
             return false;
         }

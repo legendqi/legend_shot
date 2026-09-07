@@ -85,7 +85,15 @@ fn main() -> eframe::Result<()> {
 
     // 非托盘平台在窗口显示前截图，避免截图包含遮罩层。
     #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-    let _ = app.capture_screens();
+    if let Err(error) = app.capture_screens() {
+        let message = if error.contains("未检测到") {
+            crate::app::NO_MONITORS
+        } else {
+            &error
+        };
+        app.report_capture_start_failure(message, false);
+        return Ok(());
+    }
 
     let capture_style = crate::app::capture_window_style();
     let viewport = egui::ViewportBuilder::default()
@@ -137,7 +145,7 @@ fn main() -> eframe::Result<()> {
             #[cfg(any(target_os = "macos", target_os = "linux"))]
             {
                 let tray_runtime = crate::tray::TrayRuntime::start(cc.egui_ctx.clone())
-                    .map_err(|error| std::io::Error::other(error))?;
+                    .map_err(std::io::Error::other)?;
                 app.install_tray(tray_runtime);
             }
 
@@ -155,12 +163,11 @@ fn get_config_path() -> PathBuf {
 }
 
 fn load_config(path: &PathBuf) -> AppConfig {
-    if path.exists() {
-        if let Ok(content) = std::fs::read_to_string(path) {
-            if let Ok(config) = serde_json::from_str(&content) {
-                return config;
-            }
-        }
+    if path.exists()
+        && let Ok(content) = std::fs::read_to_string(path)
+        && let Ok(config) = serde_json::from_str(&content)
+    {
+        return config;
     }
     AppConfig::default()
 }
