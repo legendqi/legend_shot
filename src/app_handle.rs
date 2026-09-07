@@ -6,7 +6,12 @@ use device_query::MousePosition;
 use eframe::emath::{Pos2, Rect};
 use egui::Color32;
 use image::{ImageBuffer, Rgba};
-use std::io::Write;
+
+fn requires_mosaic_background(annotations: &[Annotation]) -> bool {
+    annotations
+        .iter()
+        .any(|annotation| annotation.tool == Tool::Mosaic)
+}
 
 #[allow(dead_code)]
 impl ScreenshotApp {
@@ -32,7 +37,7 @@ impl ScreenshotApp {
         transform: crate::display::OutputTransform,
         annotations: &[Annotation],
     ) {
-        let background = image.clone();
+        let background = requires_mosaic_background(annotations).then(|| image.clone());
         let visual_scale = transform.scale.x.min(transform.scale.y).max(1.0);
         let draw = |annotation: &Annotation, image: &mut ImageBuffer<Rgba<u8>, Vec<u8>>| {
             let mut output_annotation = annotation.clone();
@@ -45,7 +50,7 @@ impl ScreenshotApp {
             self.draw_single_annotation_to_image(
                 image,
                 &output_annotation,
-                &background,
+                background.as_ref(),
                 visual_scale,
             );
         };
@@ -179,28 +184,20 @@ impl ScreenshotApp {
             annotations.push(new_annotation);
         }
 
-        if let Ok(cropped_image) = self.compose_current_selection(&annotations) {
-            let temp_dir_path = std::env::temp_dir();
-            let now = chrono::Local::now();
-            let filename = now.format("screenshot_%Y-%m-%d_%H-%M-%S.png").to_string();
-            let temp_file_path = temp_dir_path.join(filename);
-
-            if let Err(e) = cropped_image.save(&temp_file_path) {
-                eprintln!("警告: 保存临时文件失败: {}", e);
-            }
-
-            if let Some(path_str) = temp_file_path.to_str() {
-                let _ = std::io::stdout().write_all(path_str.as_bytes());
-                let _ = std::io::stdout().flush();
-            }
-
-            self.set_to_clipboard(cropped_image)?;
-            eprintln!("=== GUI 模式: 复制到剪贴板成功 ===");
-        } else {
-            eprintln!("错误: 裁剪图片失败");
-            return Err("裁剪图片失败".to_string());
-        }
+        self.copy_current_selection_with(&annotations, |image| self.set_to_clipboard(image))?;
+        eprintln!("=== GUI 模式: 复制到剪贴板成功 ===");
         Ok(())
+    }
+
+    fn copy_current_selection_with<F>(
+        &self,
+        annotations: &[Annotation],
+        deliver: F,
+    ) -> Result<(), String>
+    where
+        F: FnOnce(ImageBuffer<Rgba<u8>, Vec<u8>>) -> Result<(), String>,
+    {
+        deliver(self.compose_current_selection(annotations)?)
     }
 
     /// 测试模式专用的裁剪方法，不需要标注
@@ -212,7 +209,7 @@ impl ScreenshotApp {
         &self,
         image: &mut ImageBuffer<Rgba<u8>, Vec<u8>>,
         annotation: &Annotation,
-        mosaic_source: &ImageBuffer<Rgba<u8>, Vec<u8>>,
+        mosaic_source: Option<&ImageBuffer<Rgba<u8>, Vec<u8>>>,
         visual_scale: f32,
     ) {
         let points = annotation
@@ -270,7 +267,9 @@ impl ScreenshotApp {
                 }
             }
             Tool::Mosaic => {
-                if let (Some(&start), Some(&end)) = (points.first(), points.last()) {
+                if let (Some(&start), Some(&end), Some(mosaic_source)) =
+                    (points.first(), points.last(), mosaic_source)
+                {
                     self.draw_mosaic(
                         image,
                         mosaic_source,
@@ -758,6 +757,80 @@ mod tests {
         assert_eq!(image.dimensions(), (100, 50));
         assert_eq!(image.get_pixel(10, 10).0, [255, 0, 0, 255]);
         assert_eq!(image.get_pixel(90, 10).0, [0, 0, 255, 255]);
+    }
+
+    #[test]
+    fn clipboard_delivery_uses_composed_image_directly() {
+        let mut app = app_with_two_solid_displays(false);
+        app.selection_rect = Some(Rect::from_min_size(
+            Pos2::new(50.0, 0.0),
+            Vec2::new(100.0, 50.0),
+        ));
+        let mut delivered = None;
+
+        app.copy_current_selection_with(&[], |image| {
+            delivered = Some(image);
+            Ok(())
+        })
+        .unwrap();
+
+        let image = delivered.unwrap();
+        assert_eq!(image.dimensions(), (100, 50));
+        assert_eq!(image.get_pixel(10, 10).0, [255, 0, 0, 255]);
+        assert_eq!(image.get_pixel(90, 10).0, [0, 0, 255, 255]);
+    }
+
+    #[test]
+    fn background_copy_is_only_required_for_mosaic_annotations() {
+        let rectangle = Annotation {
+            tool: Tool::Rectangle,
+            points: vec![],
+            color: Color32::RED,
+            stroke_width: 1.0,
+            text: String::new(),
+            number: None,
+        };
+        let mosaic = Annotation {
+            tool: Tool::Mosaic,
+            ..rectangle.clone()
+        };
+
+        assert!(!super::requires_mosaic_background(&[]));
+        assert!(!super::requires_mosaic_background(&[rectangle]));
+        assert!(super::requires_mosaic_background(&[mosaic]));
+    }
+
+    #[test]
+    fn mosaic_annotation_still_renders_from_the_unmodified_background() {
+        let source =
+            RgbaImage::from_fn(8, 8, |x, y| Rgba([(x * 16) as u8, (y * 16) as u8, 0, 255]));
+        let geometry = DisplayGeometry::new(
+            0,
+            Rect::from_min_size(Pos2::ZERO, Vec2::new(8.0, 8.0)),
+            (8, 8),
+        )
+        .unwrap();
+        let mut app = ScreenshotApp::default();
+        app.install_capture_session(
+            CaptureSession::new(vec![
+                CapturedDisplay::from_image(geometry, source, 2048).unwrap(),
+            ])
+            .unwrap(),
+        );
+        app.selection_rect = Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(8.0, 8.0)));
+        let mosaic = Annotation {
+            tool: Tool::Mosaic,
+            points: vec![Pos2::ZERO, Pos2::new(8.0, 8.0)],
+            color: Color32::TRANSPARENT,
+            stroke_width: 1.0,
+            text: String::new(),
+            number: None,
+        };
+
+        let image = app.compose_current_selection(&[mosaic]).unwrap();
+
+        assert_eq!(image.get_pixel(0, 0).0, [24, 24, 0, 255]);
+        assert_eq!(image.get_pixel(4, 4).0, [88, 88, 0, 255]);
     }
 
     #[test]
