@@ -47,6 +47,19 @@ pub(crate) fn capture_window_style_for(is_macos: bool) -> CaptureWindowStyle {
     }
 }
 
+pub(crate) fn capture_window_geometry_commands(
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+) -> [egui::ViewportCommand; 3] {
+    [
+        egui::ViewportCommand::InnerSize(egui::vec2(width, height)),
+        egui::ViewportCommand::OuterPosition(egui::pos2(x, y)),
+        egui::ViewportCommand::WindowLevel(egui::WindowLevel::AlwaysOnTop),
+    ]
+}
+
 pub(crate) fn saved_position_is_visible(
     state: crate::app_default::OcrWindowState,
     monitor_size: egui::Vec2,
@@ -91,6 +104,12 @@ impl App for ScreenshotApp {
             if self.lifecycle != AppLifecycle::Capturing {
                 return;
             }
+
+            #[cfg(target_os = "macos")]
+            if self.capture_reveal_state.take_reveal() {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+                ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+            }
         }
 
         if self.process_native_save_dialog(ctx) {
@@ -110,6 +129,10 @@ impl App for ScreenshotApp {
                     self.restore_capture_window(ctx);
                 }
                 self.update_capture_view(ctx);
+                #[cfg(target_os = "macos")]
+                if self.capture_reveal_state.finish_hidden_frame() {
+                    ctx.request_repaint();
+                }
             }
             AppView::OcrResult => {
                 if !self.ocr_window_configured {
@@ -183,8 +206,13 @@ impl ScreenshotApp {
         }
         self.app_view = AppView::Capture;
         self.ocr_window_configured = true;
-        ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
-        ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+        #[cfg(target_os = "macos")]
+        self.capture_reveal_state.begin();
+        #[cfg(not(target_os = "macos"))]
+        {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+            ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+        }
         ctx.request_repaint();
     }
 
@@ -217,6 +245,7 @@ impl ScreenshotApp {
         self.is_moving_box = false;
         self.pending_save_image = None;
         self.native_save_dialog_state = crate::app_default::NativeSaveDialogState::Idle;
+        self.capture_reveal_state = crate::app_default::CaptureRevealState::Idle;
         self.last_click_time = 0.0;
         self.last_click_pos = egui::Pos2::ZERO;
         self.ocr_session.cancel();
@@ -376,16 +405,14 @@ impl ScreenshotApp {
             if let (Ok(x), Ok(y), Ok(width), Ok(height)) =
                 (screen.x(), screen.y(), screen.width(), screen.height())
             {
-                ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(egui::pos2(
-                    x as f32, y as f32,
-                )));
-                ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(
+                for command in capture_window_geometry_commands(
+                    x as f32,
+                    y as f32,
                     width as f32,
                     height as f32,
-                )));
-                ctx.send_viewport_cmd(egui::ViewportCommand::WindowLevel(
-                    egui::WindowLevel::AlwaysOnTop,
-                ));
+                ) {
+                    ctx.send_viewport_cmd(command);
+                }
             }
         }
 
@@ -438,7 +465,28 @@ impl ScreenshotApp {
 
 #[cfg(test)]
 mod tests {
-    use super::{CompletionDisposition, OCR_WINDOW_MIN_SIZE, completion_disposition_for};
+    use super::{
+        CompletionDisposition, OCR_WINDOW_MIN_SIZE, capture_window_geometry_commands,
+        completion_disposition_for,
+    };
+
+    #[test]
+    fn capture_window_is_sized_before_it_moves_to_the_screen_origin() {
+        let commands = capture_window_geometry_commands(0.0, 0.0, 1512.0, 982.0);
+
+        assert!(matches!(
+            commands[0],
+            egui::ViewportCommand::InnerSize(_)
+        ));
+        assert!(matches!(
+            commands[1],
+            egui::ViewportCommand::OuterPosition(_)
+        ));
+        assert!(matches!(
+            commands[2],
+            egui::ViewportCommand::WindowLevel(egui::WindowLevel::AlwaysOnTop)
+        ));
+    }
 
     #[test]
     fn capture_reset_restores_selection_interaction_defaults() {

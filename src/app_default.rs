@@ -130,6 +130,39 @@ pub enum NativeSaveDialogState {
     ReadyToOpen { restore_toolbar: bool },
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CaptureRevealState {
+    Idle,
+    WaitingForHiddenFrame,
+    ReadyToReveal,
+}
+
+impl CaptureRevealState {
+    pub fn begin(&mut self) -> bool {
+        if *self != Self::Idle {
+            return false;
+        }
+        *self = Self::WaitingForHiddenFrame;
+        true
+    }
+
+    pub fn finish_hidden_frame(&mut self) -> bool {
+        if *self != Self::WaitingForHiddenFrame {
+            return false;
+        }
+        *self = Self::ReadyToReveal;
+        true
+    }
+
+    pub fn take_reveal(&mut self) -> bool {
+        if *self != Self::ReadyToReveal {
+            return false;
+        }
+        *self = Self::Idle;
+        true
+    }
+}
+
 impl NativeSaveDialogState {
     pub fn begin(&mut self, restore_toolbar: bool) -> bool {
         if *self != Self::Idle {
@@ -183,6 +216,7 @@ pub struct CaptureSnapshot {
 
 pub struct ScreenshotApp {
     pub lifecycle: AppLifecycle,
+    pub capture_reveal_state: CaptureRevealState,
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     pub(crate) tray_runtime: Option<crate::tray::TrayRuntime>,
     pub is_first: bool,
@@ -259,6 +293,7 @@ impl Default for ScreenshotApp {
         let (sender, receiver) = mpsc::channel();
         Self {
             lifecycle: AppLifecycle::Capturing,
+            capture_reveal_state: CaptureRevealState::Idle,
             #[cfg(any(target_os = "macos", target_os = "linux"))]
             tray_runtime: None,
             is_first: true,
@@ -438,8 +473,20 @@ impl ScreenshotApp {
 #[cfg(test)]
 mod tests {
     use super::{
-        AppConfig, AppLifecycle, NativeSaveDialogState, OcrWindowState, ScreenshotApp, Tool,
+        AppConfig, AppLifecycle, CaptureRevealState, NativeSaveDialogState, OcrWindowState,
+        ScreenshotApp, Tool,
     };
+
+    #[test]
+    fn capture_waits_for_one_hidden_frame_before_reveal() {
+        let mut state = CaptureRevealState::Idle;
+
+        assert!(state.begin());
+        assert!(!state.take_reveal());
+        state.finish_hidden_frame();
+        assert!(state.take_reveal());
+        assert_eq!(state, CaptureRevealState::Idle);
+    }
 
     #[test]
     fn native_save_dialog_waits_for_hidden_toolbar_frame_before_opening() {

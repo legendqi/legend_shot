@@ -191,6 +191,17 @@ mod tests {
     }
 
     #[test]
+    fn macos_template_icon_uses_a_transparent_background() {
+        let icon = image::load_from_memory(MACOS_TRAY_ICON_PNG)
+            .unwrap()
+            .into_rgba8();
+        let alphas = icon.pixels().map(|pixel| pixel[3]).collect::<Vec<_>>();
+
+        assert!(alphas.contains(&0), "模板图标背景必须透明");
+        assert!(alphas.contains(&255), "模板图标轮廓必须可见");
+    }
+
+    #[test]
     fn linux_tray_icon_is_neutral_monochrome_on_transparency() {
         let icon = image::load_from_memory(LINUX_TRAY_ICON_PNG)
             .unwrap()
