@@ -5,9 +5,11 @@ use device_query::{DeviceState, MousePosition};
 use eframe::emath::{Pos2, Rect};
 use eframe::epaint::{Color32, ColorImage};
 use egui::Id;
-use image::{GenericImageView, ImageBuffer, Rgba};
+use image::{ImageBuffer, Rgba};
 use serde::{Deserialize, Serialize};
 use xcap::Monitor;
+
+use crate::display::{CaptureSession, CapturedDisplay, DisplayGeometry, PixelRect};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub struct OcrWindowState {
@@ -214,6 +216,11 @@ pub struct CaptureSnapshot {
     pub annotations: Vec<Annotation>,
 }
 
+pub struct DisplayTextureTile {
+    pub pixel_rect: PixelRect,
+    pub texture: egui::TextureHandle,
+}
+
 pub struct ScreenshotApp {
     pub lifecycle: AppLifecycle,
     pub capture_reveal_state: CaptureRevealState,
@@ -225,6 +232,8 @@ pub struct ScreenshotApp {
     pub original_screenshots: Vec<ImageBuffer<Rgba<u8>, Vec<u8>>>, // 原始分辨率截图，用于保存
     pub screenshots_positions: Vec<(usize, usize, ImageBuffer<Rgba<u8>, Vec<u8>>)>,
     pub display_textures_split: Vec<(usize, usize, egui::TextureHandle)>,
+    pub capture_session: Option<CaptureSession>,
+    pub display_textures: Vec<Vec<DisplayTextureTile>>,
     pub original_selection_rect: Option<Rect>,
     pub mouse_original_selection_rect: Option<MouseSelectionRect>,
 
@@ -302,6 +311,8 @@ impl Default for ScreenshotApp {
             original_screenshots: Vec::new(),
             screenshots_positions: Vec::new(),
             display_textures_split: Vec::new(),
+            capture_session: None,
+            display_textures: Vec::new(),
             original_selection_rect: None,
             mouse_original_selection_rect: None,
             selection_rect: None,
@@ -379,39 +390,85 @@ impl ScreenshotApp {
 pub const MAX_TEXTURE_SIZE: usize = 2048;
 
 impl ScreenshotApp {
-    pub fn capture_screens(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        self.screens = Monitor::all()?;
-        self.screen_width = self.screens[0].width()? as i32;
-        self.screen_height = self.screens[0].height()? as i32;
+    pub fn install_capture_session(&mut self, session: CaptureSession) {
+        self.display_textures = (0..session.displays.len()).map(|_| Vec::new()).collect();
+        self.capture_session = Some(session);
+    }
+
+    pub fn try_install_captured_displays(
+        &mut self,
+        displays: Vec<CapturedDisplay>,
+    ) -> Result<(), String> {
+        let session = CaptureSession::new(displays)?;
+        self.install_capture_session(session);
+        Ok(())
+    }
+
+    pub fn capture_screens(&mut self) -> Result<(), String> {
+        let screens = Monitor::all().map_err(|error| format!("枚举显示器失败: {error}"))?;
+        if screens.is_empty() {
+            return Err("未检测到可截图的显示器".to_string());
+        }
+
+        let mut captured_displays = Vec::with_capacity(screens.len());
+        for (session_index, screen) in screens.iter().enumerate() {
+            let x = screen
+                .x()
+                .map_err(|error| format!("读取显示器 {session_index} 的 X 坐标失败: {error}"))?;
+            let y = screen
+                .y()
+                .map_err(|error| format!("读取显示器 {session_index} 的 Y 坐标失败: {error}"))?;
+            let logical_width = screen
+                .width()
+                .map_err(|error| format!("读取显示器 {session_index} 的宽度失败: {error}"))?;
+            let logical_height = screen
+                .height()
+                .map_err(|error| format!("读取显示器 {session_index} 的高度失败: {error}"))?;
+            let image = screen
+                .capture_image()
+                .map_err(|error| format!("捕获显示器 {session_index}（{x},{y}）失败: {error}"))?;
+            let geometry = DisplayGeometry::new(
+                session_index,
+                Rect::from_min_size(
+                    Pos2::new(x as f32, y as f32),
+                    egui::vec2(logical_width as f32, logical_height as f32),
+                ),
+                image.dimensions(),
+            )?;
+            captured_displays.push(CapturedDisplay::from_image(
+                geometry,
+                image,
+                MAX_TEXTURE_SIZE as u32,
+            )?);
+        }
+
+        let session = CaptureSession::new(captured_displays)?;
+
+        // 旧渲染与导出路径会在后续任务中迁移；在此之前由同一原子会话派生兼容数据。
+        self.screens = screens;
         self.screenshots.clear();
-        self.original_screenshots.clear();
-        for screen in &self.screens {
-            self.screen_scale = screen.scale_factor().unwrap();
-            let image = screen.capture_image()?;
-            let (width, height) = image.dimensions();
-            self.screen_width = width as i32;
-            self.screen_height = height as i32;
-
-            // 始终保存原始分辨率截图用于导出
-            self.original_screenshots.push(image.clone());
-
-            if width <= MAX_TEXTURE_SIZE as u32 && height <= MAX_TEXTURE_SIZE as u32 {
-                self.screenshots_positions.push((0, 0, image.clone()));
-                self.screenshots.push(image.clone());
-            } else {
-                // 分块纹理，处理大尺寸屏幕
-                for y in (0..height).step_by(MAX_TEXTURE_SIZE) {
-                    for x in (0..width).step_by(MAX_TEXTURE_SIZE) {
-                        let tile_width = (width - x).min(MAX_TEXTURE_SIZE as u32);
-                        let tile_height = (height - y).min(MAX_TEXTURE_SIZE as u32);
-                        let tile = image.view(x, y, tile_width, tile_height).to_image();
-                        self.screenshots_positions
-                            .push((x as usize, y as usize, tile.clone()));
-                        self.screenshots.push(tile);
-                    }
-                }
+        self.original_screenshots = session
+            .displays
+            .iter()
+            .map(|display| display.original_image.clone())
+            .collect();
+        self.screenshots_positions.clear();
+        for display in &session.displays {
+            for tile in &display.tiles {
+                self.screenshots.push(tile.image.clone());
+                self.screenshots_positions.push((
+                    tile.pixel_rect.x as usize,
+                    tile.pixel_rect.y as usize,
+                    tile.image.clone(),
+                ));
             }
         }
+        if let Some(first) = session.displays.first() {
+            self.screen_width = first.geometry.pixel_size.0 as i32;
+            self.screen_height = first.geometry.pixel_size.1 as i32;
+            self.screen_scale = first.geometry.pixel_scale.x;
+        }
+        self.install_capture_session(session);
         Ok(())
     }
 
@@ -432,6 +489,7 @@ impl ScreenshotApp {
     // }
 
     pub fn screen_to_texture(&mut self, ctx: &egui::Context) {
+        self.ensure_display_textures(ctx);
         for (x, y, image) in self.screenshots_positions.clone() {
             let size = [image.width() as usize, image.height() as usize];
             let pixels = image.into_raw();
@@ -446,7 +504,49 @@ impl ScreenshotApp {
         }
     }
 
+    pub fn ensure_display_textures(&mut self, ctx: &egui::Context) {
+        let Some(session) = &self.capture_session else {
+            return;
+        };
+        if self.display_textures.iter().any(|tiles| !tiles.is_empty()) {
+            return;
+        }
+
+        self.display_textures = session
+            .displays
+            .iter()
+            .map(|display| {
+                display
+                    .tiles
+                    .iter()
+                    .map(|tile| {
+                        let size = [tile.image.width() as usize, tile.image.height() as usize];
+                        let color_image =
+                            ColorImage::from_rgba_unmultiplied(size, tile.image.as_raw());
+                        let texture = ctx.load_texture(
+                            format!(
+                                "screenshot_{}_{}_{}",
+                                display.geometry.session_index,
+                                tile.pixel_rect.x,
+                                tile.pixel_rect.y
+                            ),
+                            color_image,
+                            Default::default(),
+                        );
+                        DisplayTextureTile {
+                            pixel_rect: tile.pixel_rect,
+                            texture,
+                        }
+                    })
+                    .collect()
+            })
+            .collect();
+    }
+
     pub fn get_combined_bounds(&self) -> Rect {
+        if let Some(session) = &self.capture_session {
+            return session.desktop_bounds;
+        }
         if self.screens.is_empty() {
             return Rect::NOTHING;
         }
@@ -472,10 +572,38 @@ impl ScreenshotApp {
 
 #[cfg(test)]
 mod tests {
+    use egui::{Pos2, Rect, Vec2};
+    use image::RgbaImage;
+
+    use crate::display::{CaptureSession, CapturedDisplay, DisplayGeometry};
+
     use super::{
         AppConfig, AppLifecycle, CaptureRevealState, NativeSaveDialogState, OcrWindowState,
         ScreenshotApp, Tool,
     };
+
+    fn test_display(
+        index: usize,
+        bounds: (f32, f32, f32, f32),
+        pixels: (u32, u32),
+    ) -> CapturedDisplay {
+        let geometry = DisplayGeometry::new(
+            index,
+            Rect::from_min_size(Pos2::new(bounds.0, bounds.1), Vec2::new(bounds.2, bounds.3)),
+            pixels,
+        )
+        .unwrap();
+        CapturedDisplay::from_image(
+            geometry,
+            RgbaImage::new(pixels.0, pixels.1),
+            super::MAX_TEXTURE_SIZE as u32,
+        )
+        .unwrap()
+    }
+
+    fn test_capture_session(displays: Vec<CapturedDisplay>) -> CaptureSession {
+        CaptureSession::new(displays).unwrap()
+    }
 
     #[test]
     fn capture_waits_for_one_hidden_frame_before_reveal() {
@@ -628,5 +756,35 @@ mod tests {
     fn ocr_is_an_action_not_an_annotation_tool() {
         assert!(!Tool::Ocr.is_annotation_tool());
         assert!(Tool::Pen.is_annotation_tool());
+    }
+
+    #[test]
+    fn installing_capture_session_replaces_all_display_state_at_once() {
+        let mut app = ScreenshotApp::default();
+        let session = test_capture_session(vec![
+            test_display(0, (0.0, 0.0, 100.0, 100.0), (100, 100)),
+            test_display(1, (100.0, 0.0, 100.0, 100.0), (200, 200)),
+        ]);
+
+        app.install_capture_session(session);
+
+        assert_eq!(app.capture_session.as_ref().unwrap().displays.len(), 2);
+        assert_eq!(app.display_textures.len(), 2);
+        assert!(app.display_textures.iter().all(Vec::is_empty));
+    }
+
+    #[test]
+    fn failed_session_build_does_not_replace_existing_capture() {
+        let mut app = ScreenshotApp::default();
+        app.install_capture_session(test_capture_session(vec![test_display(
+            0,
+            (0.0, 0.0, 100.0, 100.0),
+            (100, 100),
+        )]));
+
+        assert!(app.try_install_captured_displays(Vec::new()).is_err());
+
+        assert_eq!(app.capture_session.as_ref().unwrap().displays.len(), 1);
+        assert_eq!(app.display_textures.len(), 1);
     }
 }

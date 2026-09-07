@@ -222,6 +222,8 @@ impl ScreenshotApp {
         self.original_screenshots.clear();
         self.screenshots_positions.clear();
         self.display_textures_split.clear();
+        self.capture_session = None;
+        self.display_textures.clear();
         self.selection_rect = None;
         self.mouse_selection_rect = None;
         self.original_selection_rect = None;
@@ -474,10 +476,7 @@ mod tests {
     fn capture_window_is_sized_before_it_moves_to_the_screen_origin() {
         let commands = capture_window_geometry_commands(0.0, 0.0, 1512.0, 982.0);
 
-        assert!(matches!(
-            commands[0],
-            egui::ViewportCommand::InnerSize(_)
-        ));
+        assert!(matches!(commands[0], egui::ViewportCommand::InnerSize(_)));
         assert!(matches!(
             commands[1],
             egui::ViewportCommand::OuterPosition(_)
@@ -491,6 +490,19 @@ mod tests {
     #[test]
     fn capture_reset_restores_selection_interaction_defaults() {
         let mut app = crate::app_default::ScreenshotApp::default();
+        let geometry = crate::display::DisplayGeometry::new(
+            0,
+            egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(10.0, 10.0)),
+            (10, 10),
+        )
+        .unwrap();
+        let display = crate::display::CapturedDisplay::from_image(
+            geometry,
+            image::RgbaImage::new(10, 10),
+            crate::app_default::MAX_TEXTURE_SIZE as u32,
+        )
+        .unwrap();
+        app.install_capture_session(crate::display::CaptureSession::new(vec![display]).unwrap());
         app.current_tool = crate::app_default::Tool::Pen;
         app.tool_bar_focused = true;
         app.text_input_finalized = true;
@@ -502,6 +514,8 @@ mod tests {
         assert!(!app.tool_bar_focused);
         assert!(!app.text_input_finalized);
         assert_eq!(app.last_click_time, 0.0);
+        assert!(app.capture_session.is_none());
+        assert!(app.display_textures.is_empty());
     }
 
     #[test]
