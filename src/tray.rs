@@ -191,7 +191,7 @@ mod tests {
     }
 
     #[test]
-    fn linux_tray_icon_is_white_monochrome_on_transparency() {
+    fn linux_tray_icon_is_neutral_monochrome_on_transparency() {
         let icon = image::load_from_memory(LINUX_TRAY_ICON_PNG)
             .unwrap()
             .into_rgba8();
@@ -203,7 +203,12 @@ mod tests {
             pixels
                 .iter()
                 .filter(|pixel| pixel[3] > 0)
-                .all(|pixel| pixel[0] == 255 && pixel[1] == 255 && pixel[2] == 255)
+                .all(|pixel| pixel[0] == pixel[1] && pixel[1] == pixel[2])
+        );
+        assert!(
+            pixels
+                .iter()
+                .any(|pixel| pixel[3] == 255 && (112..=124).contains(&pixel[0]))
         );
     }
 
