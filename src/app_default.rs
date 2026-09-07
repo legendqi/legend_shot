@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, mpsc};
 
-use device_query::{DeviceQuery, DeviceState, MousePosition};
+use device_query::{DeviceQuery, DeviceState};
 use eframe::emath::{Pos2, Rect};
 use eframe::epaint::{Color32, ColorImage};
 use egui::Id;
@@ -75,7 +75,6 @@ impl Tool {
 pub struct Annotation {
     pub tool: Tool,
     pub points: Vec<Pos2>,
-    pub mouse_points: Vec<MousePosition>,
     pub color: Color32,
     pub stroke_width: f32,
     pub text: String,
@@ -104,12 +103,6 @@ impl TextInputState {
             has_focus: false,
         }
     }
-}
-
-#[derive(Clone, Copy, Debug)]
-pub struct MouseSelectionRect {
-    pub start: MousePosition,
-    pub end: MousePosition,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -237,7 +230,6 @@ impl AppLifecycle {
 #[derive(Clone)]
 pub struct CaptureSnapshot {
     pub selection_rect: Option<Rect>,
-    pub mouse_selection_rect: Option<MouseSelectionRect>,
     pub annotations: Vec<Annotation>,
 }
 
@@ -254,25 +246,18 @@ pub struct ScreenshotApp {
     pub is_first: bool,
     pub screens: Vec<Monitor>,
     pub screenshots: Vec<ImageBuffer<Rgba<u8>, Vec<u8>>>,
-    pub original_screenshots: Vec<ImageBuffer<Rgba<u8>, Vec<u8>>>, // 原始分辨率截图，用于保存
-    pub screenshots_positions: Vec<(usize, usize, ImageBuffer<Rgba<u8>, Vec<u8>>)>,
     pub display_textures_split: Vec<(usize, usize, egui::TextureHandle)>,
     pub capture_session: Option<CaptureSession>,
     pub display_textures: Vec<Vec<DisplayTextureTile>>,
     pub original_selection_rect: Option<Rect>,
-    pub mouse_original_selection_rect: Option<MouseSelectionRect>,
 
     // 选择状态
     pub selection_rect: Option<Rect>,
-    pub mouse_selection_rect: Option<MouseSelectionRect>,
     pub is_selecting: bool,
     pub selection_start: Pos2,
     pub selection_end: Pos2,
-    pub mouse_start: MousePosition, // 添加鼠标位置变量 窗口中鼠标位置和屏幕中鼠标位置的坐标不一样，导致最后截图不对，故添加此参数
-    pub mouse_end: MousePosition, // 添加鼠标位置变量 窗口中鼠标位置和屏幕中鼠标位置的坐标不一样，导致最后截图不对，故添加此参数
     pub is_moving_box: bool,
     pub move_start: Pos2,
-    pub mouse_move_start: MousePosition,
 
     // 标注状态
     pub current_tool: Tool,
@@ -336,23 +321,16 @@ impl Default for ScreenshotApp {
             is_first: true,
             screens: Vec::new(),
             screenshots: Vec::new(),
-            original_screenshots: Vec::new(),
-            screenshots_positions: Vec::new(),
             display_textures_split: Vec::new(),
             capture_session: None,
             display_textures: Vec::new(),
             original_selection_rect: None,
-            mouse_original_selection_rect: None,
             selection_rect: None,
-            mouse_selection_rect: None,
             is_selecting: false,
             selection_start: Pos2::ZERO,
             selection_end: Pos2::ZERO,
-            mouse_start: (0, 0),
-            mouse_end: (0, 0),
             is_moving_box: false,
             move_start: Pos2::ZERO,
-            mouse_move_start: (0, 0),
             current_tool: Tool::Select,
             annotations: Vec::new(),
             current_annotation: None,
@@ -398,13 +376,6 @@ impl ScreenshotApp {
         self.selection_start = position;
         self.selection_end = position;
         self.selection_rect = Some(Rect::from_min_max(position, position));
-        let mouse_position = (position.x.round() as i32, position.y.round() as i32);
-        self.mouse_start = mouse_position;
-        self.mouse_end = mouse_position;
-        self.mouse_selection_rect = Some(MouseSelectionRect {
-            start: mouse_position,
-            end: mouse_position,
-        });
     }
 
     pub fn update_global_selection(&mut self, position: Pos2) {
@@ -413,17 +384,6 @@ impl ScreenshotApp {
         }
         self.selection_end = position;
         self.selection_rect = Some(Rect::from_two_pos(self.selection_start, self.selection_end));
-        self.mouse_end = (position.x.round() as i32, position.y.round() as i32);
-        self.mouse_selection_rect = Some(MouseSelectionRect {
-            start: (
-                self.mouse_start.0.min(self.mouse_end.0),
-                self.mouse_start.1.min(self.mouse_end.1),
-            ),
-            end: (
-                self.mouse_start.0.max(self.mouse_end.0),
-                self.mouse_start.1.max(self.mouse_end.1),
-            ),
-        });
     }
 
     pub fn finish_global_selection(&mut self) {
@@ -531,23 +491,11 @@ impl ScreenshotApp {
 
         let session = CaptureSession::new(captured_displays)?;
 
-        // 旧渲染与导出路径会在后续任务中迁移；在此之前由同一原子会话派生兼容数据。
         self.screens = screens;
         self.screenshots.clear();
-        self.original_screenshots = session
-            .displays
-            .iter()
-            .map(|display| display.original_image.clone())
-            .collect();
-        self.screenshots_positions.clear();
         for display in &session.displays {
             for tile in &display.tiles {
                 self.screenshots.push(tile.image.clone());
-                self.screenshots_positions.push((
-                    tile.pixel_rect.x as usize,
-                    tile.pixel_rect.y as usize,
-                    tile.image.clone(),
-                ));
             }
         }
         if let Some(first) = session.displays.first() {
@@ -574,22 +522,6 @@ impl ScreenshotApp {
     //     }
     //     tiles
     // }
-
-    pub fn screen_to_texture(&mut self, ctx: &egui::Context) {
-        self.ensure_display_textures(ctx);
-        for (x, y, image) in self.screenshots_positions.clone() {
-            let size = [image.width() as usize, image.height() as usize];
-            let pixels = image.into_raw();
-            // 注意：这里假设 image crate 返回的是 RGBA 字节，与 egui 的 ColorImage 匹配
-            let color_image = ColorImage::from_rgba_unmultiplied(size, &pixels);
-            let texture = ctx.load_texture(
-                format!("screenshot_{}_{}", x, y),
-                color_image,
-                Default::default(),
-            );
-            self.display_textures_split.push((x, y, texture));
-        }
-    }
 
     pub fn ensure_display_textures(&mut self, ctx: &egui::Context) {
         let Some(session) = &self.capture_session else {

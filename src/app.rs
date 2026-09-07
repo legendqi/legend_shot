@@ -252,21 +252,14 @@ impl ScreenshotApp {
     fn reset_capture_state(&mut self) {
         self.screens.clear();
         self.screenshots.clear();
-        self.original_screenshots.clear();
-        self.screenshots_positions.clear();
         self.display_textures_split.clear();
         self.capture_session = None;
         self.display_textures.clear();
         self.selection_rect = None;
-        self.mouse_selection_rect = None;
         self.original_selection_rect = None;
-        self.mouse_original_selection_rect = None;
         self.selection_start = egui::Pos2::ZERO;
         self.selection_end = egui::Pos2::ZERO;
-        self.mouse_start = (0, 0);
-        self.mouse_end = (0, 0);
         self.move_start = egui::Pos2::ZERO;
-        self.mouse_move_start = (0, 0);
         self.current_tool = crate::app_default::Tool::Select;
         self.annotations.clear();
         self.current_annotation = None;

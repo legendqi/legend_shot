@@ -1,9 +1,4 @@
-use crate::app_default::{Annotation, MAX_TEXTURE_SIZE, MouseSelectionRect, ScreenshotApp, Tool};
-#[cfg(target_os = "macos")]
-use crate::app_ocr::crop_region_for_global_selection_in_pixels;
-use crate::app_ocr::crop_rgba_region;
-#[cfg(not(target_os = "macos"))]
-use crate::ui::get_screen_rect;
+use crate::app_default::{Annotation, ScreenshotApp, Tool};
 use crate::ui::{draw_annotation_text, draw_simple_char};
 #[cfg(not(target_os = "linux"))]
 use arboard::Clipboard;
@@ -15,44 +10,57 @@ use std::io::Write;
 
 #[allow(dead_code)]
 impl ScreenshotApp {
-    #[allow(dead_code)]
-    pub fn xcap_capture_region(&mut self) -> Result<ImageBuffer<Rgba<u8>, Vec<u8>>, String> {
-        let window_image = self.screens[0].capture_image().map_err(|e| e.to_string())?;
-        let (image_width, image_height) = window_image.dimensions();
-        let (x, y, width, height);
-        if image_width > MAX_TEXTURE_SIZE as u32 || image_height > MAX_TEXTURE_SIZE as u32 {
-            x = ((self.mouse_start.0.min(self.mouse_end.0) as f32) * self.screen_scale) as i32;
-            y = ((self.mouse_start.1.min(self.mouse_end.1) as f32) * self.screen_scale) as i32;
-            width =
-                ((self.mouse_end.0 - self.mouse_start.0).abs() as f32 * self.screen_scale) as i32;
-            height =
-                ((self.mouse_end.1 - self.mouse_start.1).abs() as f32 * self.screen_scale) as i32;
-        } else {
-            x = ((self.mouse_start.0.min(self.mouse_end.0) as f32) * self.image_scale) as i32;
-            y = ((self.mouse_start.1.min(self.mouse_end.1) as f32) * self.image_scale) as i32;
-            width =
-                ((self.mouse_end.0 - self.mouse_start.0).abs() as f32 * self.image_scale) as i32;
-            height =
-                ((self.mouse_end.1 - self.mouse_start.1).abs() as f32 * self.image_scale) as i32;
+    pub fn compose_current_selection(
+        &self,
+        annotations: &[Annotation],
+    ) -> Result<ImageBuffer<Rgba<u8>, Vec<u8>>, String> {
+        let selection = self
+            .selection_rect
+            .ok_or_else(|| "请选择截图区域".to_string())?;
+        let session = self
+            .capture_session
+            .as_ref()
+            .ok_or_else(|| "截图会话不存在".to_string())?;
+        let mut composed = crate::display::compose_selection(&session.displays, selection)?;
+        self.draw_annotations_on_composed(&mut composed.image, composed.transform, annotations);
+        Ok(composed.image)
+    }
+
+    fn draw_annotations_on_composed(
+        &self,
+        image: &mut ImageBuffer<Rgba<u8>, Vec<u8>>,
+        transform: crate::display::OutputTransform,
+        annotations: &[Annotation],
+    ) {
+        let background = image.clone();
+        let visual_scale = transform.scale.x.min(transform.scale.y).max(1.0);
+        let draw = |annotation: &Annotation, image: &mut ImageBuffer<Rgba<u8>, Vec<u8>>| {
+            let mut output_annotation = annotation.clone();
+            output_annotation.points = annotation
+                .points
+                .iter()
+                .map(|point| transform.global_to_output(*point))
+                .collect();
+            output_annotation.stroke_width *= visual_scale;
+            self.draw_single_annotation_to_image(
+                image,
+                &output_annotation,
+                &background,
+                visual_scale,
+            );
+        };
+        for annotation in annotations
+            .iter()
+            .filter(|annotation| annotation.tool == Tool::Mosaic)
+        {
+            draw(annotation, image);
         }
-        let mut cropped_image: ImageBuffer<Rgba<u8>, Vec<u8>> =
-            ImageBuffer::new(width as u32, height as u32);
-        // 复制原始截图内容
-        for mut src_y in y..(y + height) {
-            for mut src_x in x..(x + width) {
-                let dst_x = src_x - x;
-                let dst_y = src_y - y;
-                src_x = src_x.min(image_width as i32 - 1);
-                src_y = src_y.min(image_height as i32 - 1);
-                let pixel = window_image.get_pixel(src_x as u32, src_y as u32);
-                cropped_image.put_pixel(
-                    dst_x.try_into().unwrap(),
-                    dst_y.try_into().unwrap(),
-                    pixel.clone(),
-                );
-            }
+        for annotation in annotations
+            .iter()
+            .filter(|annotation| annotation.tool != Tool::Mosaic)
+        {
+            draw(annotation, image);
         }
-        Ok(cropped_image)
     }
 
     pub fn set_to_clipboard(&self, image: ImageBuffer<Rgba<u8>, Vec<u8>>) -> Result<(), String> {
@@ -110,8 +118,7 @@ impl ScreenshotApp {
             annotations.push(new_annotation);
         }
 
-        if let Some(cropped_image) = self.crop_selection(self.selection_rect.unwrap(), &annotations)
-        {
+        if let Ok(cropped_image) = self.compose_current_selection(&annotations) {
             let restore_toolbar = self.show_toolbar;
             if !self.native_save_dialog_state.begin(restore_toolbar) {
                 return;
@@ -172,8 +179,7 @@ impl ScreenshotApp {
             annotations.push(new_annotation);
         }
 
-        if let Some(cropped_image) = self.crop_selection(self.selection_rect.unwrap(), &annotations)
-        {
+        if let Ok(cropped_image) = self.compose_current_selection(&annotations) {
             let temp_dir_path = std::env::temp_dir();
             let now = chrono::Local::now();
             let filename = now.format("screenshot_%Y-%m-%d_%H-%M-%S.png").to_string();
@@ -197,228 +203,9 @@ impl ScreenshotApp {
         Ok(())
     }
 
-    fn crop_selection(
-        &self,
-        selection_rect: Rect,
-        annotations: &Vec<Annotation>,
-    ) -> Option<ImageBuffer<Rgba<u8>, Vec<u8>>> {
-        // 尝试从 mouse_selection_rect 获取坐标，如果无效则从 selection_rect 计算
-        let (x, y, width, height) = if let Some(mouse_sel) = self.mouse_selection_rect {
-            let w = (mouse_sel.end.0 - mouse_sel.start.0).abs();
-            let h = (mouse_sel.end.1 - mouse_sel.start.1).abs();
-            if w > 0 && h > 0 {
-                // mouse_selection_rect 有效
-                let x = mouse_sel.start.0.min(mouse_sel.end.0);
-                let y = mouse_sel.start.1.min(mouse_sel.end.1);
-                (x, y, w, h)
-            } else {
-                // mouse_selection_rect 无效，从 selection_rect 计算
-                let x = selection_rect.min.x as i32;
-                let y = selection_rect.min.y as i32;
-                let w = selection_rect.width() as i32;
-                let h = selection_rect.height() as i32;
-                (x, y, w, h)
-            }
-        } else {
-            // mouse_selection_rect 为空，从 selection_rect 计算
-            let x = selection_rect.min.x as i32;
-            let y = selection_rect.min.y as i32;
-            let w = selection_rect.width() as i32;
-            let h = selection_rect.height() as i32;
-            (x, y, w, h)
-        };
-
-        // 查找包含选择区域的屏幕，使用原始分辨率截图
-        for (screen, screenshot) in self.screens.iter().zip(&self.original_screenshots) {
-            #[cfg(target_os = "macos")]
-            {
-                let monitor = (
-                    screen.x().ok()?,
-                    screen.y().ok()?,
-                    screen.width().ok()?,
-                    screen.height().ok()?,
-                );
-                let crop = crop_region_for_global_selection_in_pixels(
-                    monitor,
-                    screenshot.dimensions(),
-                    (x, y),
-                    (x.checked_add(width)?, y.checked_add(height)?),
-                );
-                if let Some((crop_x, crop_y, crop_width, crop_height)) = crop {
-                    let mut cropped_image =
-                        crop_rgba_region(screenshot, crop_x, crop_y, crop_width, crop_height)?;
-                    let coordinate_scale = (
-                        screenshot.width() as f32 / monitor.2 as f32,
-                        screenshot.height() as f32 / monitor.3 as f32,
-                    );
-                    self.add_annotations_to_image(
-                        &mut cropped_image,
-                        annotations,
-                        coordinate_scale,
-                    );
-                    return Some(cropped_image);
-                }
-                continue;
-            }
-
-            #[cfg(not(target_os = "macos"))]
-            {
-                let screen_rect = get_screen_rect(screen);
-
-                if screen_rect.contains(selection_rect.center()) {
-                    if width > 0 && height > 0 {
-                        let mut cropped_image: ImageBuffer<Rgba<u8>, Vec<u8>> =
-                            ImageBuffer::new(width as u32, height as u32);
-
-                        // 复制原始截图内容
-                        for src_y in y..(y + height) {
-                            for src_x in x..(x + width) {
-                                let dst_x = src_x - x;
-                                let dst_y = src_y - y;
-
-                                // 边界检查
-                                if src_x >= 0
-                                    && src_y >= 0
-                                    && src_x < screenshot.width() as i32
-                                    && src_y < screenshot.height() as i32
-                                {
-                                    let pixel = screenshot.get_pixel(src_x as u32, src_y as u32);
-                                    cropped_image.put_pixel(
-                                        dst_x as u32,
-                                        dst_y as u32,
-                                        pixel.clone(),
-                                    );
-                                }
-                            }
-                        }
-
-                        // 添加标注内容
-                        self.add_annotations_to_image(&mut cropped_image, annotations, (1.0, 1.0));
-
-                        return Some(cropped_image);
-                    }
-                }
-            }
-        }
-        None
-    }
-
     /// 测试模式专用的裁剪方法，不需要标注
     pub fn crop_selection_for_test(&self) -> Option<ImageBuffer<Rgba<u8>, Vec<u8>>> {
-        let mouse_sel = self.mouse_selection_rect?;
-        #[cfg(not(target_os = "macos"))]
-        let selection_rect = self.selection_rect?;
-
-        #[cfg(not(target_os = "macos"))]
-        let x = (mouse_sel.start.0.min(mouse_sel.end.0)) as i32;
-        #[cfg(not(target_os = "macos"))]
-        let y = (mouse_sel.start.1.min(mouse_sel.end.1)) as i32;
-        let width = (mouse_sel.end.0 - mouse_sel.start.0).abs() as i32;
-        let height = (mouse_sel.end.1 - mouse_sel.start.1).abs() as i32;
-
-        if width <= 0 || height <= 0 {
-            return None;
-        }
-
-        // 查找包含选择区域的屏幕，使用原始分辨率截图
-        for (screen, screenshot) in self.screens.iter().zip(&self.original_screenshots) {
-            #[cfg(target_os = "macos")]
-            {
-                let monitor = (
-                    screen.x().ok()?,
-                    screen.y().ok()?,
-                    screen.width().ok()?,
-                    screen.height().ok()?,
-                );
-                let crop = crop_region_for_global_selection_in_pixels(
-                    monitor,
-                    screenshot.dimensions(),
-                    mouse_sel.start,
-                    mouse_sel.end,
-                );
-                if let Some((crop_x, crop_y, crop_width, crop_height)) = crop {
-                    return crop_rgba_region(screenshot, crop_x, crop_y, crop_width, crop_height);
-                }
-                continue;
-            }
-
-            #[cfg(not(target_os = "macos"))]
-            {
-                let screen_rect = get_screen_rect(screen);
-
-                if screen_rect.contains(selection_rect.center()) {
-                    return crop_rgba_region(
-                        screenshot,
-                        x.try_into().ok()?,
-                        y.try_into().ok()?,
-                        width.try_into().ok()?,
-                        height.try_into().ok()?,
-                    );
-                }
-            }
-        }
-
-        None
-    }
-
-    fn add_annotations_to_image(
-        &self,
-        image: &mut ImageBuffer<Rgba<u8>, Vec<u8>>,
-        annotations: &Vec<Annotation>,
-        coordinate_scale: (f32, f32),
-    ) {
-        let background = image.clone();
-        for annotation in annotations {
-            if annotation.tool == Tool::Mosaic {
-                self.draw_scaled_annotation_to_image(
-                    image,
-                    annotation,
-                    &background,
-                    coordinate_scale,
-                );
-            }
-        }
-        for annotation in annotations {
-            if annotation.tool != Tool::Mosaic {
-                self.draw_scaled_annotation_to_image(
-                    image,
-                    annotation,
-                    &background,
-                    coordinate_scale,
-                );
-            }
-        }
-    }
-
-    fn draw_scaled_annotation_to_image(
-        &self,
-        image: &mut ImageBuffer<Rgba<u8>, Vec<u8>>,
-        annotation: &Annotation,
-        mosaic_source: &ImageBuffer<Rgba<u8>, Vec<u8>>,
-        coordinate_scale: (f32, f32),
-    ) {
-        let mouse_selection_rect = match self.mouse_selection_rect {
-            Some(rect) => rect,
-            None => return,
-        };
-        let visual_scale = coordinate_scale.0.min(coordinate_scale.1).max(1.0);
-        let mut scaled = annotation.clone();
-        scaled.mouse_points = annotation
-            .mouse_points
-            .iter()
-            .map(|point| {
-                (
-                    mouse_selection_rect.start.0
-                        + ((point.0 - mouse_selection_rect.start.0) as f32 * coordinate_scale.0)
-                            .round() as i32,
-                    mouse_selection_rect.start.1
-                        + ((point.1 - mouse_selection_rect.start.1) as f32 * coordinate_scale.1)
-                            .round() as i32,
-                )
-            })
-            .collect();
-        scaled.stroke_width *= visual_scale;
-        self.draw_single_annotation_to_image(image, &scaled, mosaic_source, visual_scale);
+        self.compose_current_selection(&[]).ok()
     }
 
     fn draw_single_annotation_to_image(
@@ -428,157 +215,82 @@ impl ScreenshotApp {
         mosaic_source: &ImageBuffer<Rgba<u8>, Vec<u8>>,
         visual_scale: f32,
     ) {
-        if annotation.mouse_points.is_empty() {
+        let points = annotation
+            .points
+            .iter()
+            .map(|point| (point.x.round() as i32, point.y.round() as i32))
+            .collect::<Vec<_>>();
+        if points.is_empty() {
             return;
         }
-
-        let mouse_selection_rect = match self.mouse_selection_rect {
-            Some(rect) => rect,
-            None => return,
-        };
-
         let color = annotation.color;
-        let offset_x = mouse_selection_rect.start.0;
-        let offset_y = mouse_selection_rect.start.1;
-
         match annotation.tool {
             Tool::Pen => {
-                // 绘制画笔 - 使用 mouse_points
-                for window in annotation.mouse_points.windows(2) {
-                    if let [start, end] = window {
-                        let start_rel = (start.0 - offset_x, start.1 - offset_y);
-                        let end_rel = (end.0 - offset_x, end.1 - offset_y);
-                        self.draw_smooth_line(image, start_rel, end_rel, color, annotation);
-                    }
+                for window in points.windows(2) {
+                    self.draw_smooth_line(image, window[0], window[1], color, annotation);
                 }
             }
             Tool::Rectangle => {
-                // 绘制矩形 - 使用 mouse_points
-                if let (Some(&start), Some(&end)) = (
-                    annotation.mouse_points.first(),
-                    annotation.mouse_points.last(),
-                ) {
-                    let start_rel = (start.0 - offset_x, start.1 - offset_y);
-                    let end_rel = (end.0 - offset_x, end.1 - offset_y);
-                    let rect_rel = Rect::from_two_pos(
-                        Pos2::new(start_rel.0 as f32, start_rel.1 as f32),
-                        Pos2::new(end_rel.0 as f32, end_rel.1 as f32),
-                    );
-
-                    // 绘制矩形边框
-                    for y in (rect_rel.min.y as usize)
-                        ..((rect_rel.min.y + annotation.stroke_width) as usize)
-                    {
-                        for x in (rect_rel.min.x as usize)..((rect_rel.max.x) as usize) {
-                            if x < image.width() as usize && y < image.height() as usize {
-                                image.put_pixel(
-                                    x as u32,
-                                    y as u32,
-                                    Rgba([color.r(), color.g(), color.b(), color.a()]),
-                                );
-                            }
-                        }
-                    }
-                    for y in (rect_rel.max.y as usize)
-                        ..((rect_rel.max.y + annotation.stroke_width) as usize)
-                    {
-                        for x in (rect_rel.min.x as usize)
-                            ..((rect_rel.max.x + annotation.stroke_width) as usize)
-                        {
-                            if x < image.width() as usize && y < image.height() as usize {
-                                image.put_pixel(
-                                    x as u32,
-                                    y as u32,
-                                    Rgba([color.r(), color.g(), color.b(), color.a()]),
-                                );
-                            }
-                        }
-                    }
-                    for x in (rect_rel.min.x as usize)
-                        ..((rect_rel.min.x + annotation.stroke_width) as usize)
-                    {
-                        for y in (rect_rel.min.y as usize)..((rect_rel.max.y) as usize) {
-                            if x < image.width() as usize && y < image.height() as usize {
-                                image.put_pixel(
-                                    x as u32,
-                                    y as u32,
-                                    Rgba([color.r(), color.g(), color.b(), color.a()]),
-                                );
-                            }
-                        }
-                    }
-                    for x in (rect_rel.max.x as usize)
-                        ..((rect_rel.max.x + annotation.stroke_width) as usize)
-                    {
-                        for y in (rect_rel.min.y as usize)
-                            ..((rect_rel.max.y + annotation.stroke_width) as usize)
-                        {
-                            if x < image.width() as usize && y < image.height() as usize {
-                                image.put_pixel(
-                                    x as u32,
-                                    y as u32,
-                                    Rgba([color.r(), color.g(), color.b(), color.a()]),
-                                );
-                            }
-                        }
+                if let (Some(&start), Some(&end)) = (points.first(), points.last()) {
+                    let corners = [
+                        (start.0, start.1),
+                        (end.0, start.1),
+                        (end.0, end.1),
+                        (start.0, end.1),
+                        (start.0, start.1),
+                    ];
+                    for edge in corners.windows(2) {
+                        self.draw_smooth_line(image, edge[0], edge[1], color, annotation);
                     }
                 }
             }
             Tool::Arrow => {
-                // 绘制箭头 - 使用 mouse_points
-                if let (Some(&start), Some(&end)) = (
-                    annotation.mouse_points.first(),
-                    annotation.mouse_points.last(),
-                ) {
-                    let start_rel = (start.0 - offset_x, start.1 - offset_y);
-                    let end_rel = (end.0 - offset_x, end.1 - offset_y);
-
-                    // 绘制箭头线
-                    self.draw_smooth_line(image, start_rel, end_rel, color, annotation);
-
-                    // 绘制箭头头
-                    let end_pos = Pos2::new(end_rel.0 as f32, end_rel.1 as f32);
-                    let start_pos = Pos2::new(start_rel.0 as f32, start_rel.1 as f32);
-                    self.draw_filled_arrow_head(image, end_pos, start_pos, color, visual_scale);
+                if let (Some(&start), Some(&end)) = (points.first(), points.last()) {
+                    self.draw_smooth_line(image, start, end, color, annotation);
+                    self.draw_filled_arrow_head(
+                        image,
+                        Pos2::new(end.0 as f32, end.1 as f32),
+                        Pos2::new(start.0 as f32, start.1 as f32),
+                        color,
+                        visual_scale,
+                    );
                 }
             }
             Tool::Text => {
-                // 绘制文本 - 使用 mouse_points
-                if let Some(&pos) = annotation.mouse_points.first() {
-                    let pos_rel = Pos2::new(
-                        (pos.0 - offset_x).max(0) as f32,
-                        (pos.1 - offset_y).max(0) as f32,
+                if let Some(&pos) = points.first()
+                    && !annotation.text.is_empty()
+                {
+                    self.draw_text(
+                        image,
+                        Pos2::new(pos.0.max(0) as f32, pos.1.max(0) as f32),
+                        &annotation.text,
+                        color,
+                        visual_scale,
                     );
-
-                    if !annotation.text.is_empty() {
-                        self.draw_text(image, pos_rel, &annotation.text, color, visual_scale);
-                    }
                 }
             }
             Tool::Mosaic => {
-                if let (Some(&start), Some(&end)) = (
-                    annotation.mouse_points.first(),
-                    annotation.mouse_points.last(),
-                ) {
-                    let start_rel =
-                        Pos2::new((start.0 - offset_x) as f32, (start.1 - offset_y) as f32);
-                    let end_rel = Pos2::new((end.0 - offset_x) as f32, (end.1 - offset_y) as f32);
-                    let rect_rel = Rect::from_two_pos(start_rel, end_rel);
+                if let (Some(&start), Some(&end)) = (points.first(), points.last()) {
                     self.draw_mosaic(
                         image,
                         mosaic_source,
-                        rect_rel,
+                        Rect::from_two_pos(
+                            Pos2::new(start.0 as f32, start.1 as f32),
+                            Pos2::new(end.0 as f32, end.1 as f32),
+                        ),
                         (4.0 * visual_scale).round().max(1.0) as u32,
                     );
                 }
             }
             Tool::Number => {
-                // 序号绘制 - 使用 mouse_points
-                if let Some(&pos) = annotation.mouse_points.first() {
-                    let pos_rel = ((pos.0 - offset_x).max(0), (pos.1 - offset_y).max(0));
-                    if let Some(number) = annotation.number {
-                        self.draw_number(image, pos_rel, &number.to_string(), color, visual_scale);
-                    }
+                if let (Some(&pos), Some(number)) = (points.first(), annotation.number) {
+                    self.draw_number(
+                        image,
+                        (pos.0.max(0), pos.1.max(0)),
+                        &number.to_string(),
+                        color,
+                        visual_scale,
+                    );
                 }
             }
             _ => {}
@@ -667,98 +379,6 @@ impl ScreenshotApp {
             }
         }
     }
-    // 画矩形框
-    fn draw_rectangle(
-        &self,
-        image: &mut ImageBuffer<Rgba<u8>, Vec<u8>>,
-        annotation: &Annotation,
-        mouse_selection_rect: MouseSelectionRect,
-        color: Color32,
-    ) {
-        if let (Some(&start), Some(&end)) = (
-            annotation.mouse_points.first(),
-            annotation.mouse_points.last(),
-        ) {
-            let start_rel: MousePosition = (
-                start.0 - mouse_selection_rect.start.0,
-                start.1 - mouse_selection_rect.start.1,
-            );
-            let end_rel: MousePosition = (
-                end.0 - mouse_selection_rect.start.0,
-                end.1 - mouse_selection_rect.start.1,
-            );
-            let rect_rel = Rect::from_min_max(
-                Pos2::new(start_rel.0 as f32, start_rel.1 as f32),
-                Pos2::new(end_rel.0 as f32, end_rel.1 as f32),
-            );
-
-            // 顶边
-            for y in
-                (rect_rel.min.y as usize)..((rect_rel.min.y + annotation.stroke_width) as usize)
-            {
-                for x in (rect_rel.min.x as usize)..((rect_rel.max.x) as usize) {
-                    if x < image.width() as usize && y < image.height() as usize {
-                        image.put_pixel(
-                            x as u32,
-                            y as u32,
-                            Rgba([color.r(), color.g(), color.b(), color.a()]),
-                        );
-                    }
-                }
-            }
-
-            // 低边
-            for y in
-                (rect_rel.max.y as usize)..((rect_rel.max.y + annotation.stroke_width) as usize)
-            {
-                for x in
-                    (rect_rel.min.x as usize)..((rect_rel.max.x + annotation.stroke_width) as usize)
-                {
-                    if x < image.width() as usize && y < image.height() as usize {
-                        image.put_pixel(
-                            x as u32,
-                            y as u32,
-                            Rgba([color.r(), color.g(), color.b(), color.a()]),
-                        );
-                    }
-                }
-            }
-
-            // 左边
-            for x in
-                (rect_rel.min.x as usize)..((rect_rel.min.x + annotation.stroke_width) as usize)
-            {
-                for y in (rect_rel.min.y as usize)..((rect_rel.max.y) as usize) {
-                    if x < image.width() as usize && y < image.height() as usize {
-                        image.put_pixel(
-                            x as u32,
-                            y as u32,
-                            Rgba([color.r(), color.g(), color.b(), color.a()]),
-                        );
-                    }
-                }
-            }
-
-            // 右边
-            for x in
-                (rect_rel.max.x as usize)..((rect_rel.max.x + annotation.stroke_width) as usize)
-            {
-                for y in
-                    (rect_rel.min.y as usize)..((rect_rel.max.y + annotation.stroke_width) as usize)
-                {
-                    if x < image.width() as usize && y < image.height() as usize {
-                        image.put_pixel(
-                            x as u32,
-                            y as u32,
-                            Rgba([color.r(), color.g(), color.b(), color.a()]),
-                        );
-                    }
-                }
-            }
-        }
-    }
-
-    // 修复箭头实心问题：绘制实心箭头
     fn draw_filled_arrow_head(
         &self,
         image: &mut ImageBuffer<Rgba<u8>, Vec<u8>>,
@@ -1078,6 +698,84 @@ impl ScreenshotApp {
 
 #[cfg(test)]
 mod tests {
+    use eframe::emath::{Pos2, Rect, Vec2};
+    use egui::Color32;
+    use image::{Rgba, RgbaImage};
+
+    use crate::app_default::{Annotation, ScreenshotApp, Tool};
+    use crate::display::{CaptureSession, CapturedDisplay, DisplayGeometry};
+
+    fn solid_display(
+        index: usize,
+        origin_x: f32,
+        logical_width: f32,
+        pixels: (u32, u32),
+        color: [u8; 4],
+    ) -> CapturedDisplay {
+        let geometry = DisplayGeometry::new(
+            index,
+            Rect::from_min_size(Pos2::new(origin_x, 0.0), Vec2::new(logical_width, 50.0)),
+            pixels,
+        )
+        .unwrap();
+        CapturedDisplay::from_image(
+            geometry,
+            RgbaImage::from_pixel(pixels.0, pixels.1, Rgba(color)),
+            2048,
+        )
+        .unwrap()
+    }
+
+    fn app_with_two_solid_displays(retina_second: bool) -> ScreenshotApp {
+        let mut app = ScreenshotApp::default();
+        let second_pixels = if retina_second { (200, 100) } else { (100, 50) };
+        app.install_capture_session(
+            CaptureSession::new(vec![
+                solid_display(0, 0.0, 100.0, (100, 50), [255, 0, 0, 255]),
+                solid_display(1, 100.0, 100.0, second_pixels, [0, 0, 255, 255]),
+            ])
+            .unwrap(),
+        );
+        app
+    }
+
+    #[test]
+    fn current_selection_composes_both_displays_for_every_consumer() {
+        let mut app = app_with_two_solid_displays(false);
+        app.selection_rect = Some(Rect::from_min_size(
+            Pos2::new(50.0, 0.0),
+            Vec2::new(100.0, 50.0),
+        ));
+
+        let image = app.compose_current_selection(&[]).unwrap();
+
+        assert_eq!(image.dimensions(), (100, 50));
+        assert_eq!(image.get_pixel(10, 10).0, [255, 0, 0, 255]);
+        assert_eq!(image.get_pixel(90, 10).0, [0, 0, 255, 255]);
+    }
+
+    #[test]
+    fn annotation_global_point_uses_composed_output_transform() {
+        let mut app = app_with_two_solid_displays(true);
+        app.selection_rect = Some(Rect::from_min_size(
+            Pos2::new(50.0, 0.0),
+            Vec2::new(100.0, 50.0),
+        ));
+        let annotation = Annotation {
+            tool: Tool::Rectangle,
+            points: vec![Pos2::new(75.0, 10.0), Pos2::new(125.0, 40.0)],
+            color: Color32::RED,
+            stroke_width: 1.0,
+            text: String::new(),
+            number: None,
+        };
+
+        let image = app.compose_current_selection(&[annotation]).unwrap();
+
+        assert_eq!(image.dimensions(), (200, 100));
+        assert_eq!(image.get_pixel(50, 20).0[..3], [255, 0, 0]);
+    }
+
     #[test]
     fn save_image_to_path_reports_write_failure() {
         let mut app = crate::app_default::ScreenshotApp::default();

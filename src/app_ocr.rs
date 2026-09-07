@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-use image::{GenericImageView, RgbaImage};
+use image::RgbaImage;
 
 use crate::app_default::{AppView, CaptureSnapshot, ScreenshotApp};
 use crate::ocr::{OcrRequest, OcrViewState};
@@ -19,122 +19,9 @@ pub(crate) fn ocr_result_escape_action(state: &OcrViewState) -> OcrResultAction 
     }
 }
 
-pub fn crop_rgba_region(
-    source: &RgbaImage,
-    x: u32,
-    y: u32,
-    width: u32,
-    height: u32,
-) -> Option<RgbaImage> {
-    if width == 0 || height == 0 {
-        return None;
-    }
-
-    let end_x = x.checked_add(width)?;
-    let end_y = y.checked_add(height)?;
-    if end_x > source.width() || end_y > source.height() {
-        return None;
-    }
-
-    Some(source.view(x, y, width, height).to_image())
-}
-
-pub fn crop_region_for_global_selection(
-    monitor: (i32, i32, u32, u32),
-    selection_start: (i32, i32),
-    selection_end: (i32, i32),
-) -> Option<(u32, u32, u32, u32)> {
-    let global_x = selection_start.0.min(selection_end.0);
-    let global_y = selection_start.1.min(selection_end.1);
-    let width = (selection_end.0 - selection_start.0).unsigned_abs();
-    let height = (selection_end.1 - selection_start.1).unsigned_abs();
-    if width == 0 || height == 0 {
-        return None;
-    }
-
-    let local_x = global_x.checked_sub(monitor.0)?;
-    let local_y = global_y.checked_sub(monitor.1)?;
-    let local_x = u32::try_from(local_x).ok()?;
-    let local_y = u32::try_from(local_y).ok()?;
-    let end_x = local_x.checked_add(width)?;
-    let end_y = local_y.checked_add(height)?;
-    if end_x > monitor.2 || end_y > monitor.3 {
-        return None;
-    }
-
-    Some((local_x, local_y, width, height))
-}
-
-pub fn crop_region_for_global_selection_in_pixels(
-    monitor: (i32, i32, u32, u32),
-    screenshot_size: (u32, u32),
-    selection_start: (i32, i32),
-    selection_end: (i32, i32),
-) -> Option<(u32, u32, u32, u32)> {
-    let (local_x, local_y, width, height) =
-        crop_region_for_global_selection(monitor, selection_start, selection_end)?;
-    if monitor.2 == 0 || monitor.3 == 0 || screenshot_size.0 == 0 || screenshot_size.1 == 0 {
-        return None;
-    }
-
-    let scale_boundary = |value: u32, logical_size: u32, pixel_size: u32, ceil: bool| {
-        let numerator = u64::from(value) * u64::from(pixel_size);
-        let denominator = u64::from(logical_size);
-        let scaled = if ceil {
-            numerator.div_ceil(denominator)
-        } else {
-            numerator / denominator
-        };
-        u32::try_from(scaled).ok()
-    };
-
-    let x = scale_boundary(local_x, monitor.2, screenshot_size.0, false)?;
-    let y = scale_boundary(local_y, monitor.3, screenshot_size.1, false)?;
-    let end_x = scale_boundary(
-        local_x.checked_add(width)?,
-        monitor.2,
-        screenshot_size.0,
-        true,
-    )?;
-    let end_y = scale_boundary(
-        local_y.checked_add(height)?,
-        monitor.3,
-        screenshot_size.1,
-        true,
-    )?;
-
-    Some((x, y, end_x.checked_sub(x)?, end_y.checked_sub(y)?))
-}
-
 impl ScreenshotApp {
     pub fn crop_selection_for_ocr(&self) -> Option<RgbaImage> {
-        let mouse_selection = self.mouse_selection_rect?;
-
-        self.screens
-            .iter()
-            .zip(&self.original_screenshots)
-            .find_map(|(screen, screenshot)| {
-                let monitor = (
-                    screen.x().ok()?,
-                    screen.y().ok()?,
-                    screen.width().ok()?,
-                    screen.height().ok()?,
-                );
-                #[cfg(target_os = "macos")]
-                let crop = crop_region_for_global_selection_in_pixels(
-                    monitor,
-                    screenshot.dimensions(),
-                    mouse_selection.start,
-                    mouse_selection.end,
-                )?;
-                #[cfg(not(target_os = "macos"))]
-                let crop = crop_region_for_global_selection(
-                    monitor,
-                    mouse_selection.start,
-                    mouse_selection.end,
-                )?;
-                crop_rgba_region(screenshot, crop.0, crop.1, crop.2, crop.3)
-            })
+        self.compose_current_selection(&[]).ok()
     }
 
     pub fn submit_ocr_for_current_selection(&mut self, now: Instant) -> Result<(), String> {
@@ -185,13 +72,11 @@ impl ScreenshotApp {
 
         self.ocr_capture_snapshot = Some(CaptureSnapshot {
             selection_rect: self.selection_rect,
-            mouse_selection_rect: self.mouse_selection_rect,
             annotations: self.annotations.clone(),
         });
         self.ocr_session.begin_capture();
         self.app_view = AppView::Capture;
         self.selection_rect = None;
-        self.mouse_selection_rect = None;
         self.annotations.clear();
         self.current_annotation = None;
         self.show_toolbar = false;
@@ -207,7 +92,6 @@ impl ScreenshotApp {
 
         if let Some(snapshot) = self.ocr_capture_snapshot.take() {
             self.selection_rect = snapshot.selection_rect;
-            self.mouse_selection_rect = snapshot.mouse_selection_rect;
             self.annotations = snapshot.annotations;
         }
         self.ocr_session.cancel_capture();
@@ -226,7 +110,6 @@ impl ScreenshotApp {
         } else {
             if let Some(snapshot) = self.ocr_capture_snapshot.take() {
                 self.selection_rect = snapshot.selection_rect;
-                self.mouse_selection_rect = snapshot.mouse_selection_rect;
                 self.annotations = snapshot.annotations;
             }
             self.ocr_session.cancel_capture();
@@ -260,7 +143,7 @@ impl ScreenshotApp {
 
 #[cfg(test)]
 mod tests {
-    use image::{ImageBuffer, Rgba, RgbaImage};
+    use image::RgbaImage;
     use std::sync::mpsc;
 
     use std::time::Instant;
@@ -268,71 +151,7 @@ mod tests {
     use crate::app_default::{AppView, CaptureSnapshot, ScreenshotApp};
     use crate::ocr::{OCR_TIMEOUT, OcrErrorKind, OcrResponse, OcrViewState, OcrWorker};
 
-    use super::{
-        OcrResultAction, crop_region_for_global_selection,
-        crop_region_for_global_selection_in_pixels, crop_rgba_region, ocr_result_escape_action,
-    };
-
-    #[test]
-    fn global_selection_uses_negative_monitor_origin_for_local_crop() {
-        let crop = crop_region_for_global_selection(
-            (-1920, -200, 1920, 1080),
-            (-1820, -150),
-            (-1780, -120),
-        )
-        .expect("selection is inside the negative-origin monitor");
-
-        assert_eq!(crop, (100, 50, 40, 30));
-    }
-
-    #[test]
-    fn global_selection_ignores_hidpi_egui_coordinates_when_locating_monitor() {
-        let monitors = [(0, 0, 2560, 1440), (2560, 0, 3840, 2160)];
-        let selection = ((3000, 300), (3200, 500));
-
-        let located = monitors.iter().enumerate().find_map(|(index, &monitor)| {
-            crop_region_for_global_selection(monitor, selection.0, selection.1)
-                .map(|crop| (index, crop))
-        });
-
-        assert_eq!(located, Some((1, (440, 300, 200, 200))));
-    }
-
-    #[test]
-    fn global_selection_scales_to_retina_native_pixels() {
-        let crop = crop_region_for_global_selection_in_pixels(
-            (0, 0, 1512, 982),
-            (3024, 1964),
-            (300, 400),
-            (985, 607),
-        )
-        .expect("selection is inside the Retina monitor");
-
-        assert_eq!(crop, (600, 800, 1370, 414));
-    }
-
-    #[test]
-    fn crop_rgba_region_crops_expected_pixels() {
-        let source = ImageBuffer::from_fn(3, 2, |x, y| {
-            Rgba([(y * 3 + x) as u8, x as u8, y as u8, 255])
-        });
-
-        let cropped = crop_rgba_region(&source, 1, 0, 2, 2).expect("valid crop");
-
-        assert_eq!(cropped.dimensions(), (2, 2));
-        assert_eq!(cropped.get_pixel(0, 0), source.get_pixel(1, 0));
-        assert_eq!(cropped.get_pixel(1, 0), source.get_pixel(2, 0));
-        assert_eq!(cropped.get_pixel(0, 1), source.get_pixel(1, 1));
-        assert_eq!(cropped.get_pixel(1, 1), source.get_pixel(2, 1));
-    }
-
-    #[test]
-    fn crop_rgba_region_rejects_empty_region() {
-        let source = ImageBuffer::from_pixel(2, 2, Rgba([1, 2, 3, 255]));
-
-        assert!(crop_rgba_region(&source, 0, 0, 0, 1).is_none());
-        assert!(crop_rgba_region(&source, 0, 0, 1, 0).is_none());
-    }
+    use super::{OcrResultAction, ocr_result_escape_action};
 
     #[test]
     fn recognizing_defensively_rejects_recapture_and_close() {
@@ -359,7 +178,6 @@ mod tests {
         app.app_view = AppView::OcrResult;
         app.ocr_capture_snapshot = Some(CaptureSnapshot {
             selection_rect: None,
-            mouse_selection_rect: None,
             annotations: Vec::new(),
         });
 
@@ -401,7 +219,6 @@ mod tests {
                 egui::pos2(10.0, 20.0),
                 egui::pos2(30.0, 40.0),
             )),
-            mouse_selection_rect: None,
             annotations: Vec::new(),
         });
 
@@ -471,14 +288,9 @@ mod tests {
         let mut app = ScreenshotApp::default();
         let old_selection =
             egui::Rect::from_min_max(egui::pos2(10.0, 20.0), egui::pos2(30.0, 40.0));
-        let old_mouse_selection = crate::app_default::MouseSelectionRect {
-            start: (10, 20),
-            end: (30, 40),
-        };
         let old_annotation = crate::app_default::Annotation {
             tool: crate::app_default::Tool::Pen,
             points: vec![egui::pos2(12.0, 22.0), egui::pos2(18.0, 28.0)],
-            mouse_points: vec![(12, 22), (18, 28)],
             color: egui::Color32::RED,
             stroke_width: 3.0,
             text: String::new(),
@@ -489,7 +301,6 @@ mod tests {
         app.app_view = AppView::Capture;
         app.ocr_capture_snapshot = Some(CaptureSnapshot {
             selection_rect: Some(old_selection),
-            mouse_selection_rect: Some(old_mouse_selection),
             annotations: vec![old_annotation],
         });
 
@@ -499,9 +310,6 @@ mod tests {
         assert_eq!(app.ocr_session.text, "旧文本");
         assert_eq!(app.app_view, AppView::OcrResult);
         assert_eq!(app.selection_rect, Some(old_selection));
-        let restored_mouse_selection = app.mouse_selection_rect.expect("mouse selection restored");
-        assert_eq!(restored_mouse_selection.start, old_mouse_selection.start);
-        assert_eq!(restored_mouse_selection.end, old_mouse_selection.end);
         assert_eq!(app.annotations.len(), 1);
         assert_eq!(app.annotations[0].tool, crate::app_default::Tool::Pen);
         assert!(app.ocr_capture_snapshot.is_none());

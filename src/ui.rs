@@ -1,10 +1,9 @@
 use crate::app_default::MAX_TEXTURE_SIZE;
-use eframe::emath::{Pos2, Rect};
+use eframe::emath::Rect;
 use eframe::epaint::textures::TextureOptions;
 use egui::{Button, Color32, Response, Ui, Vec2};
 use image::{ImageBuffer, Rgba};
 use std::sync::{Arc, OnceLock};
-use xcap::Monitor;
 
 pub const ARROW_ICON: &[u8] = include_bytes!("icon/arrow.png");
 pub const COPY_ICON: &[u8] = include_bytes!("icon/copy.png");
@@ -176,16 +175,6 @@ mod tests {
         ));
         assert!(image.pixels().any(|pixel| pixel[3] != 0));
     }
-}
-
-pub fn get_screen_rect(screen: &Monitor) -> Rect {
-    Rect::from_min_size(
-        Pos2::new(screen.x().unwrap() as f32, screen.y().unwrap() as f32),
-        Vec2::new(
-            screen.width().unwrap() as f32,
-            screen.height().unwrap() as f32,
-        ),
-    )
 }
 
 pub fn get_compress_image(

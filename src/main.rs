@@ -197,13 +197,7 @@ fn run_test_mode(region: &str, action: &str, output: Option<&str>) -> eframe::Re
         std::process::exit(1);
     }
 
-    // 设置选择区域 (使用鼠标坐标)
-    app.mouse_selection_rect = Some(crate::app_default::MouseSelectionRect {
-        start: (x, y),
-        end: (x + width, y + height),
-    });
-
-    // 设置窗口坐标的选择区域
+    // 测试区域使用虚拟桌面的全局逻辑坐标，可包含负原点并跨越显示器。
     use eframe::emath::Rect;
     use egui::Pos2;
     app.selection_rect = Some(Rect::from_min_size(
