@@ -41,7 +41,7 @@ struct Args {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum MacosCapturePermissionAction {
     Capture,
-    RequestAndExit,
+    RequestAndStayResident,
 }
 
 #[cfg(target_os = "macos")]
@@ -49,31 +49,25 @@ fn macos_capture_permission_action(has_permission: bool) -> MacosCapturePermissi
     if has_permission {
         MacosCapturePermissionAction::Capture
     } else {
-        MacosCapturePermissionAction::RequestAndExit
+        MacosCapturePermissionAction::RequestAndStayResident
     }
 }
 
 #[cfg(target_os = "macos")]
-fn ensure_macos_screen_capture_permission() -> eframe::Result<()> {
+pub(crate) fn macos_screen_capture_is_ready() -> bool {
     use objc2_core_graphics::{CGPreflightScreenCaptureAccess, CGRequestScreenCaptureAccess};
 
     match macos_capture_permission_action(CGPreflightScreenCaptureAccess()) {
-        MacosCapturePermissionAction::Capture => Ok(()),
-        MacosCapturePermissionAction::RequestAndExit => {
+        MacosCapturePermissionAction::Capture => true,
+        MacosCapturePermissionAction::RequestAndStayResident => {
             let _ = CGRequestScreenCaptureAccess();
-            Err(eframe::Error::AppCreation(Box::new(std::io::Error::new(
-                std::io::ErrorKind::PermissionDenied,
-                "没有屏幕录制权限。请在“系统设置 → 隐私与安全性 → 屏幕与系统录音”中允许系统弹窗对应的 legend_shot（开发模式下可能显示为终端），然后重新运行应用。开发版本重新编译后可能需要再次授权。",
-            ))))
+            false
         }
     }
 }
 
 fn main() -> eframe::Result<()> {
     let args = Args::parse();
-
-    #[cfg(target_os = "macos")]
-    ensure_macos_screen_capture_permission()?;
 
     // 自动测试模式
     if let Some(region) = args.test {
@@ -88,19 +82,12 @@ fn main() -> eframe::Result<()> {
     let mut app = ScreenshotApp::with_config(config, config_path);
     app.ocr_worker = Some(spawn_ocr_worker(OarOcrFactory::new()));
 
-    // 所有平台在窗口显示前截图，避免截图包含遮罩层
-    #[cfg(target_os = "macos")]
-    app.capture_screens().map_err(|error| {
-        eframe::Error::AppCreation(Box::new(std::io::Error::other(format!(
-            "捕获屏幕失败: {error}"
-        ))))
-    })?;
-
-    #[cfg(not(target_os = "macos"))]
+    // 非托盘平台在窗口显示前截图，避免截图包含遮罩层。
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     let _ = app.capture_screens();
 
     let capture_style = crate::app::capture_window_style();
-    let mut viewport = egui::ViewportBuilder::default()
+    let viewport = egui::ViewportBuilder::default()
         .with_fullscreen(capture_style.fullscreen)
         .with_decorations(capture_style.decorations)
         .with_resizable(capture_style.resizable)
@@ -109,23 +96,6 @@ fn main() -> eframe::Result<()> {
         .with_close_button(capture_style.close_button)
         .with_visible(false)
         .with_transparent(true);
-
-    #[cfg(target_os = "macos")]
-    if let Some(screen) = app
-        .screens
-        .iter()
-        .find(|screen| screen.is_primary().unwrap_or(false))
-        .or_else(|| app.screens.first())
-    {
-        if let (Ok(x), Ok(y), Ok(width), Ok(height)) =
-            (screen.x(), screen.y(), screen.width(), screen.height())
-        {
-            viewport = viewport
-                .with_position(egui::pos2(x as f32, y as f32))
-                .with_inner_size(egui::vec2(width as f32, height as f32))
-                .with_window_level(egui::WindowLevel::AlwaysOnTop);
-        }
-    }
 
     let mut options = eframe::NativeOptions {
         viewport,
@@ -162,6 +132,13 @@ fn main() -> eframe::Result<()> {
             }
 
             cc.egui_ctx.set_fonts(fonts);
+
+            #[cfg(any(target_os = "macos", target_os = "linux"))]
+            {
+                let tray_runtime = crate::tray::TrayRuntime::start(cc.egui_ctx.clone())
+                    .map_err(|error| std::io::Error::other(error))?;
+                app.install_tray(tray_runtime);
+            }
 
             Ok(Box::new(app))
         }),
@@ -294,10 +271,10 @@ mod tests {
 
     #[cfg(target_os = "macos")]
     #[test]
-    fn macos_denied_screen_capture_permission_stops_before_capture() {
+    fn macos_denied_screen_capture_permission_requests_and_stays_resident() {
         assert_eq!(
             macos_capture_permission_action(false),
-            MacosCapturePermissionAction::RequestAndExit
+            MacosCapturePermissionAction::RequestAndStayResident
         );
     }
 

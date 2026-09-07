@@ -117,6 +117,33 @@ pub enum AppView {
     OcrResult,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AppLifecycle {
+    TrayIdle,
+    Capturing,
+    Exiting,
+}
+
+impl AppLifecycle {
+    pub fn begin_capture(&mut self) -> bool {
+        if *self != Self::TrayIdle {
+            return false;
+        }
+        *self = Self::Capturing;
+        true
+    }
+
+    pub fn finish_capture(&mut self) {
+        if *self != Self::Exiting {
+            *self = Self::TrayIdle;
+        }
+    }
+
+    pub fn exit(&mut self) {
+        *self = Self::Exiting;
+    }
+}
+
 #[derive(Clone)]
 pub struct CaptureSnapshot {
     pub selection_rect: Option<Rect>,
@@ -125,6 +152,9 @@ pub struct CaptureSnapshot {
 }
 
 pub struct ScreenshotApp {
+    pub lifecycle: AppLifecycle,
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    pub(crate) tray_runtime: Option<crate::tray::TrayRuntime>,
     pub is_first: bool,
     pub screens: Vec<Monitor>,
     pub screenshots: Vec<ImageBuffer<Rgba<u8>, Vec<u8>>>,
@@ -198,6 +228,9 @@ impl Default for ScreenshotApp {
     fn default() -> Self {
         let (sender, receiver) = mpsc::channel();
         Self {
+            lifecycle: AppLifecycle::Capturing,
+            #[cfg(any(target_os = "macos", target_os = "linux"))]
+            tray_runtime: None,
             is_first: true,
             screens: Vec::new(),
             screenshots: Vec::new(),
@@ -276,7 +309,10 @@ impl ScreenshotApp {
 
         app.signal_sender = Some(Arc::new(Mutex::new(sender)));
         app.signal_receiver = Some(Arc::new(Mutex::new(receiver)));
-        app.device_state = Some(DeviceState::new());
+        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+        {
+            app.device_state = Some(DeviceState::new());
+        }
         app
     }
 
@@ -386,7 +422,28 @@ impl ScreenshotApp {
 
 #[cfg(test)]
 mod tests {
-    use super::{AppConfig, OcrWindowState, ScreenshotApp, Tool};
+    use super::{AppConfig, AppLifecycle, OcrWindowState, ScreenshotApp, Tool};
+
+    #[test]
+    fn resident_lifecycle_starts_idle_and_rejects_reentrant_capture() {
+        let mut lifecycle = AppLifecycle::TrayIdle;
+
+        assert!(lifecycle.begin_capture());
+        assert_eq!(lifecycle, AppLifecycle::Capturing);
+        assert!(!lifecycle.begin_capture());
+        lifecycle.finish_capture();
+        assert_eq!(lifecycle, AppLifecycle::TrayIdle);
+    }
+
+    #[test]
+    fn exit_is_terminal_for_resident_lifecycle() {
+        let mut lifecycle = AppLifecycle::Capturing;
+
+        lifecycle.exit();
+
+        assert_eq!(lifecycle, AppLifecycle::Exiting);
+        assert!(!lifecycle.begin_capture());
+    }
 
     #[test]
     fn default_ocr_window_size_is_500_square() {

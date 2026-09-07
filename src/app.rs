@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 
-use crate::app_default::{AppSignal, AppView, ScreenshotApp};
+use crate::app_default::{AppLifecycle, AppSignal, AppView, ScreenshotApp};
 use crate::ocr::OcrViewState;
 use eframe::App;
 use egui::Visuals;
@@ -64,6 +64,14 @@ pub(crate) fn ocr_window_geometry_can_be_applied(fullscreen: Option<bool>) -> bo
 
 impl App for ScreenshotApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        #[cfg(any(target_os = "macos", target_os = "linux"))]
+        {
+            self.poll_tray_commands(ctx);
+            if self.lifecycle != AppLifecycle::Capturing {
+                return;
+            }
+        }
+
         self.poll_ocr(Instant::now());
         if matches!(self.ocr_session.state, OcrViewState::Recognizing) {
             ctx.request_repaint_after(Duration::from_millis(100));
@@ -98,6 +106,103 @@ impl App for ScreenshotApp {
 }
 
 impl ScreenshotApp {
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    pub(crate) fn install_tray(&mut self, tray_runtime: crate::tray::TrayRuntime) {
+        self.tray_runtime = Some(tray_runtime);
+        self.lifecycle = AppLifecycle::TrayIdle;
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    fn poll_tray_commands(&mut self, ctx: &egui::Context) {
+        let mut commands = Vec::new();
+        if let Some(runtime) = &self.tray_runtime {
+            while let Some(command) = runtime.try_recv() {
+                commands.push(command);
+            }
+        }
+
+        for command in commands {
+            match command {
+                crate::tray::TrayCommand::Capture => self.begin_tray_capture(ctx),
+                crate::tray::TrayCommand::Exit => self.exit_application(ctx),
+            }
+        }
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    fn begin_tray_capture(&mut self, ctx: &egui::Context) {
+        if !self.lifecycle.begin_capture() {
+            return;
+        }
+
+        #[cfg(target_os = "macos")]
+        if !crate::macos_screen_capture_is_ready() {
+            self.lifecycle.finish_capture();
+            return;
+        }
+
+        if self.device_state.is_none() {
+            self.device_state = device_query::DeviceState::checked_new();
+        }
+        if self.device_state.is_none() {
+            eprintln!("无法访问系统指针，请授予辅助功能权限后重试截图");
+            self.lifecycle.finish_capture();
+            return;
+        }
+
+        self.reset_capture_state();
+        if let Err(error) = self.capture_screens() {
+            eprintln!("从托盘启动截图失败: {error}");
+            self.lifecycle.finish_capture();
+            return;
+        }
+        self.app_view = AppView::Capture;
+        self.ocr_window_configured = true;
+        ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+        ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+        ctx.request_repaint();
+    }
+
+    fn reset_capture_state(&mut self) {
+        self.screens.clear();
+        self.screenshots.clear();
+        self.original_screenshots.clear();
+        self.screenshots_positions.clear();
+        self.display_textures_split.clear();
+        self.selection_rect = None;
+        self.mouse_selection_rect = None;
+        self.original_selection_rect = None;
+        self.mouse_original_selection_rect = None;
+        self.annotations.clear();
+        self.current_annotation = None;
+        self.text_input = None;
+        self.number_input = None;
+        self.show_toolbar = false;
+        self.is_selecting = false;
+        self.is_moving_box = false;
+    }
+
+    pub(crate) fn hide_capture_window(&mut self, ctx: &egui::Context) {
+        #[cfg(any(target_os = "macos", target_os = "linux"))]
+        {
+            self.reset_capture_state();
+            self.lifecycle.finish_capture();
+            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+            return;
+        }
+        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    fn exit_application(&mut self, ctx: &egui::Context) {
+        self.lifecycle.exit();
+        if let Some(runtime) = &mut self.tray_runtime {
+            runtime.shutdown();
+        }
+        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+    }
+
     fn configure_ocr_window(&mut self, ctx: &egui::Context) {
         let state = self.config.ocr_window;
         ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(false));
