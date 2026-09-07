@@ -10,13 +10,24 @@ setup_targets() {
     rustup target add x86_64-apple-darwin
 }
 
+pkg_config_exists() {
+    local pkg_config_libdir="$1"
+    local package="$2"
+    if [ -n "$pkg_config_libdir" ]; then
+        PKG_CONFIG_LIBDIR="$pkg_config_libdir" pkg-config --exists "$package"
+    else
+        pkg-config --exists "$package"
+    fi
+}
+
 check_linux_tray_dependencies() {
-    if ! pkg-config --exists gtk+-3.0; then
+    local pkg_config_libdir="$1"
+    if ! pkg_config_exists "$pkg_config_libdir" gtk+-3.0; then
         echo "缺少 GTK3 开发包：Ubuntu 请安装 libgtk-3-dev"
         return 1
     fi
-    if ! pkg-config --exists ayatana-appindicator3-0.1 \
-        && ! pkg-config --exists appindicator3-0.1; then
+    if ! pkg_config_exists "$pkg_config_libdir" ayatana-appindicator3-0.1 \
+        && ! pkg_config_exists "$pkg_config_libdir" appindicator3-0.1; then
         echo "缺少 AppIndicator 开发包：Ubuntu 请安装 libayatana-appindicator3-dev 或 libappindicator3-dev"
         return 1
     fi
@@ -25,7 +36,7 @@ check_linux_tray_dependencies() {
 # 编译Linux AMD64版本
 build_linux_amd64() {
     echo "编译Linux AMD64版本..."
-    check_linux_tray_dependencies || return 1
+    check_linux_tray_dependencies "" || return 1
     cargo build --release --target=x86_64-unknown-linux-gnu
     echo "输出文件: target/x86_64-unknown-linux-gnu/release/screenshot-linux-amd64"
 }
@@ -33,7 +44,15 @@ build_linux_amd64() {
 # 编译Linux ARM64版本
 build_linux_arm64() {
     echo "编译Linux ARM64版本..."
-    check_linux_tray_dependencies || return 1
+    local pkg_config_libdir=""
+    if [ "$(uname -m)" != "aarch64" ]; then
+        if ! command -v aarch64-linux-gnu-gcc >/dev/null 2>&1; then
+            echo "缺少 ARM64 Linux 交叉编译器：Ubuntu 请安装 gcc-aarch64-linux-gnu"
+            return 1
+        fi
+        pkg_config_libdir="/usr/lib/aarch64-linux-gnu/pkgconfig:/usr/share/pkgconfig"
+    fi
+    check_linux_tray_dependencies "$pkg_config_libdir" || return 1
     cargo build --release --target=aarch64-unknown-linux-gnu
     echo "输出文件: target/aarch64-unknown-linux-gnu/release/screenshot-linux-arm64"
 }

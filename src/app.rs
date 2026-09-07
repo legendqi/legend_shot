@@ -194,13 +194,28 @@ impl ScreenshotApp {
         self.mouse_selection_rect = None;
         self.original_selection_rect = None;
         self.mouse_original_selection_rect = None;
+        self.selection_start = egui::Pos2::ZERO;
+        self.selection_end = egui::Pos2::ZERO;
+        self.mouse_start = (0, 0);
+        self.mouse_end = (0, 0);
+        self.move_start = egui::Pos2::ZERO;
+        self.mouse_move_start = (0, 0);
+        self.current_tool = crate::app_default::Tool::Select;
         self.annotations.clear();
         self.current_annotation = None;
         self.text_input = None;
         self.number_input = None;
         self.show_toolbar = false;
+        self.toolbar_position = egui::Pos2::ZERO;
+        self.tool_bar_focused = false;
+        self.text_input_finalized = false;
         self.is_selecting = false;
         self.is_moving_box = false;
+        self.pending_save_image = None;
+        self.last_click_time = 0.0;
+        self.last_click_pos = egui::Pos2::ZERO;
+        self.ocr_session.cancel();
+        self.ocr_capture_snapshot = None;
     }
 
     pub(crate) fn hide_capture_window(&mut self, ctx: &egui::Context) {
@@ -389,6 +404,22 @@ impl ScreenshotApp {
 #[cfg(test)]
 mod tests {
     use super::{CompletionDisposition, OCR_WINDOW_MIN_SIZE, completion_disposition_for};
+
+    #[test]
+    fn capture_reset_restores_selection_interaction_defaults() {
+        let mut app = crate::app_default::ScreenshotApp::default();
+        app.current_tool = crate::app_default::Tool::Pen;
+        app.tool_bar_focused = true;
+        app.text_input_finalized = true;
+        app.last_click_time = 42.0;
+
+        app.reset_capture_state();
+
+        assert_eq!(app.current_tool, crate::app_default::Tool::Select);
+        assert!(!app.tool_bar_focused);
+        assert!(!app.text_input_finalized);
+        assert_eq!(app.last_click_time, 0.0);
+    }
 
     #[test]
     fn resident_platform_hides_after_capture() {

@@ -6,7 +6,16 @@ pub(crate) enum TrayCommand {
 
 const CAPTURE_MENU_ID: &str = "legend-shot.capture";
 const EXIT_MENU_ID: &str = "legend-shot.exit";
-const TRAY_ICON_PNG: &[u8] = include_bytes!("icon/tray-focus-32.png");
+const MACOS_TRAY_ICON_PNG: &[u8] = include_bytes!("icon/tray-focus-32.png");
+const LINUX_TRAY_ICON_PNG: &[u8] = include_bytes!("icon/tray-focus-linux-32.png");
+
+fn platform_icon_bytes(is_macos: bool) -> &'static [u8] {
+    if is_macos {
+        MACOS_TRAY_ICON_PNG
+    } else {
+        LINUX_TRAY_ICON_PNG
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct TrayMenuSpec {
@@ -75,7 +84,7 @@ fn build_tray(
         .with_tooltip("Legend Shot")
         .with_menu(Box::new(menu))
         .with_menu_on_left_click(true)
-        .with_icon(load_icon(TRAY_ICON_PNG)?)
+        .with_icon(load_icon(platform_icon_bytes(cfg!(target_os = "macos")))?)
         .with_icon_as_template(cfg!(target_os = "macos"))
         .build()
         .map_err(|error| format!("托盘创建失败: {error}"))
@@ -154,7 +163,7 @@ impl TrayRuntime {
     }
 
     pub(crate) fn shutdown(&mut self) {
-        tray_icon::menu::MenuEvent::set_event_handler(None::<fn(tray_icon::menu::MenuEvent)>);
+        // The menu handler is process-global and lives until the imminent process exit.
         #[cfg(target_os = "linux")]
         let _ = self.shutdown_sender.send(());
     }
@@ -176,7 +185,8 @@ mod tests {
 
     #[test]
     fn embedded_tray_icon_is_valid_rgba() {
-        assert!(load_icon(TRAY_ICON_PNG).is_ok());
+        assert!(load_icon(platform_icon_bytes(true)).is_ok());
+        assert!(load_icon(platform_icon_bytes(false)).is_ok());
         assert!(load_icon(b"not a png").is_err());
     }
 

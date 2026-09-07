@@ -148,6 +148,8 @@ cargo build --release
 
 仅安装 Rust target 通常不足以完成桌面程序的交叉编译，还需要对应的平台 SDK、原生库、链接器和 OCR 运行时依赖。正式发布时，推荐在各目标操作系统本机或对应 CI Runner 上构建。
 
+交叉构建 `linux-arm64` 时，还需安装 `gcc-aarch64-linux-gnu`，并在 `/usr/lib/aarch64-linux-gnu/pkgconfig` 中提供 ARM64 的 GTK/AppIndicator 开发包。构建预检会检查该目标架构目录，不会把宿主架构库误判为可用。
+
 ## 平台说明
 
 | 平台 | 注意事项 |

@@ -148,6 +148,8 @@ The executable is written to `target/release/legend_shot` (`legend_shot.exe` on 
 
 Adding a Rust target alone is not always sufficient for desktop cross-compilation. Platform SDKs, native libraries, linkers, and OCR runtime dependencies must also be available. Native builds or CI runners for each operating system are recommended for release artifacts.
 
+For `linux-arm64` cross-builds, install `gcc-aarch64-linux-gnu` and provide ARM64 GTK/AppIndicator development packages under `/usr/lib/aarch64-linux-gnu/pkgconfig`. The build preflight checks that target-specific pkg-config directory instead of accepting host-architecture libraries.
+
 ## Platform notes
 
 | Platform | Notes |
