@@ -13,6 +13,47 @@ const OCR_WINDOW_MIN_SIZE: egui::Vec2 = egui::vec2(440.0, 320.0);
 pub(crate) const WAYLAND_UNSUPPORTED: &str = "当前版本仅支持 Linux X11，暂不支持 Wayland 截图。";
 pub(crate) const NO_MONITORS: &str = "未检测到可截图的显示器。";
 pub(crate) const POINTER_UNAVAILABLE: &str = "无法读取系统鼠标位置；请检查辅助功能或输入权限。";
+const CAPTURE_OVERLAY_TITLE: &str = "Legend Shot · Capture Overlay";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CaptureOverlayLevel {
+    AlwaysOnTop,
+    AboveMainMenu,
+}
+
+fn capture_overlay_level_for(is_macos: bool) -> CaptureOverlayLevel {
+    if is_macos {
+        CaptureOverlayLevel::AboveMainMenu
+    } else {
+        CaptureOverlayLevel::AlwaysOnTop
+    }
+}
+
+fn is_capture_overlay_title(title: &str) -> bool {
+    title == CAPTURE_OVERLAY_TITLE
+}
+
+#[cfg(target_os = "macos")]
+fn raise_capture_overlays_above_main_menu() {
+    use objc2::MainThreadMarker;
+    use objc2_app_kit::NSApplication;
+    use objc2_core_graphics::kCGMainMenuWindowLevel;
+
+    let Some(mtm) = MainThreadMarker::new() else {
+        return;
+    };
+    let application = NSApplication::sharedApplication(mtm);
+    let overlay_level = kCGMainMenuWindowLevel as isize + 1;
+    for window in application.windows() {
+        if is_capture_overlay_title(&window.title().to_string()) && window.level() != overlay_level
+        {
+            window.setLevel(overlay_level);
+        }
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn raise_capture_overlays_above_main_menu() {}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct OverlayWindowSpec {
@@ -535,7 +576,7 @@ impl ScreenshotApp {
 
         for spec in specs {
             let builder = egui::ViewportBuilder::default()
-                .with_title("Legend Shot")
+                .with_title(CAPTURE_OVERLAY_TITLE)
                 .with_position(spec.position)
                 .with_inner_size(spec.size)
                 .with_decorations(spec.decorated)
@@ -555,6 +596,11 @@ impl ScreenshotApp {
                     viewport_ctx.input(|input| input.viewport().close_requested())
                 },
             );
+        }
+        if capture_overlay_level_for(cfg!(target_os = "macos"))
+            == CaptureOverlayLevel::AboveMainMenu
+        {
+            raise_capture_overlays_above_main_menu();
         }
 
         if close_requested {
@@ -583,9 +629,9 @@ mod tests {
     use crate::display::{CaptureSession, CapturedDisplay, DisplayGeometry};
 
     use super::{
-        CompletionDisposition, OCR_WINDOW_MIN_SIZE, capture_window_geometry_commands,
-        completion_disposition_for, linux_x11_session_supported, overlay_ids_to_close,
-        overlay_specs,
+        CAPTURE_OVERLAY_TITLE, CaptureOverlayLevel, CompletionDisposition, OCR_WINDOW_MIN_SIZE,
+        capture_overlay_level_for, capture_window_geometry_commands, completion_disposition_for,
+        is_capture_overlay_title, linux_x11_session_supported, overlay_ids_to_close, overlay_specs,
     };
 
     fn test_session_with_bounds(bounds: &[(f32, f32, f32, f32)]) -> CaptureSession {
@@ -718,6 +764,21 @@ mod tests {
                 .iter()
                 .all(|spec| spec.always_on_top && !spec.decorated)
         );
+    }
+
+    #[test]
+    fn macos_capture_overlay_is_raised_above_the_system_menu_bar() {
+        assert_eq!(
+            capture_overlay_level_for(true),
+            CaptureOverlayLevel::AboveMainMenu
+        );
+        assert_eq!(
+            capture_overlay_level_for(false),
+            CaptureOverlayLevel::AlwaysOnTop
+        );
+        assert!(is_capture_overlay_title(CAPTURE_OVERLAY_TITLE));
+        assert!(!is_capture_overlay_title("Legend Shot · 快捷键设置"));
+        assert!(!is_capture_overlay_title("Legend Shot · 贴图"));
     }
 
     #[test]
