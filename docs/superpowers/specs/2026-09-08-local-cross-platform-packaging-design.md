@@ -68,6 +68,8 @@ packaging/
 
 每个脚本根据自身文件位置解析仓库根目录，不依赖调用者当前目录。脚本仅清理 `dist/` 下自己负责的明确 staging 子目录，不能删除整个 `dist/`，避免覆盖其他平台产物。
 
+仓库根目录 `.gitignore` 必须忽略 `/dist/`，防止安装包、临时 AppDir、应用 bundle 和签名产物被误提交。
+
 ### 版本
 
 使用 `cargo metadata --no-deps --format-version 1` 获取包名和版本。文件名中的产品名固定为 `LegendShot`，程序文件名保持 Cargo 生成的 `legend_shot` 或 `legend_shot.exe`。
