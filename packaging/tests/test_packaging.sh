@@ -34,9 +34,29 @@ test_dispatcher() {
     assert_contains ".gitignore" '/dist/'
 }
 
+test_windows() {
+    assert_file "packaging/windows/package.ps1"
+    assert_file "packaging/windows/installer.nsi"
+    assert_contains "packaging/windows/package.ps1" 'x86_64-pc-windows-msvc'
+    assert_contains "packaging/windows/package.ps1" 'cargo metadata'
+    assert_contains "packaging/windows/package.ps1" '--no-deps'
+    assert_contains "packaging/windows/package.ps1" '--format-version 1'
+    assert_contains "packaging/windows/package.ps1" 'Compress-Archive'
+    assert_contains "packaging/windows/package.ps1" 'WINDOWS_CERT_PFX'
+    assert_contains "packaging/windows/package.ps1" 'WINDOWS_TIMESTAMP_URL'
+    assert_contains "packaging/windows/package.ps1" 'magick'
+    assert_contains "packaging/windows/installer.nsi" 'RequestExecutionLevel user'
+    assert_contains "packaging/windows/installer.nsi" '$LOCALAPPDATA\Programs\Legend Shot'
+    assert_contains "packaging/windows/installer.nsi" 'WriteUninstaller'
+}
+
 case "${1:-all}" in
     dispatcher) test_dispatcher ;;
-    all) test_dispatcher ;;
+    windows) test_windows ;;
+    all)
+        test_dispatcher
+        test_windows
+        ;;
     *) fail "unknown test group: ${1:-}" ;;
 esac
 
