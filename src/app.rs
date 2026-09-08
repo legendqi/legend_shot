@@ -21,8 +21,8 @@ enum CaptureOverlayLevel {
     AboveMainMenu,
 }
 
-fn capture_overlay_level_for(is_macos: bool) -> CaptureOverlayLevel {
-    if is_macos {
+fn capture_overlay_level_for_input(is_macos: bool, text_input_active: bool) -> CaptureOverlayLevel {
+    if is_macos && !text_input_active {
         CaptureOverlayLevel::AboveMainMenu
     } else {
         CaptureOverlayLevel::AlwaysOnTop
@@ -34,16 +34,19 @@ fn is_capture_overlay_title(title: &str) -> bool {
 }
 
 #[cfg(target_os = "macos")]
-fn raise_capture_overlays_above_main_menu() {
+fn apply_capture_overlay_level(level: CaptureOverlayLevel) {
     use objc2::MainThreadMarker;
     use objc2_app_kit::NSApplication;
-    use objc2_core_graphics::kCGMainMenuWindowLevel;
+    use objc2_core_graphics::{kCGFloatingWindowLevel, kCGMainMenuWindowLevel};
 
     let Some(mtm) = MainThreadMarker::new() else {
         return;
     };
     let application = NSApplication::sharedApplication(mtm);
-    let overlay_level = kCGMainMenuWindowLevel as isize + 1;
+    let overlay_level = match level {
+        CaptureOverlayLevel::AlwaysOnTop => kCGFloatingWindowLevel as isize,
+        CaptureOverlayLevel::AboveMainMenu => kCGMainMenuWindowLevel as isize + 1,
+    };
     for window in application.windows() {
         if is_capture_overlay_title(&window.title().to_string()) && window.level() != overlay_level
         {
@@ -53,7 +56,7 @@ fn raise_capture_overlays_above_main_menu() {
 }
 
 #[cfg(not(target_os = "macos"))]
-fn raise_capture_overlays_above_main_menu() {}
+fn apply_capture_overlay_level(_level: CaptureOverlayLevel) {}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct OverlayWindowSpec {
@@ -128,6 +131,23 @@ pub(crate) fn capture_window_style_for(is_macos: bool) -> CaptureWindowStyle {
         minimize_button: false,
         maximize_button: false,
     }
+}
+
+pub(crate) fn capture_root_viewport(
+    style: CaptureWindowStyle,
+    resident_platform: bool,
+) -> egui::ViewportBuilder {
+    egui::ViewportBuilder::default()
+        .with_fullscreen(style.fullscreen)
+        .with_decorations(style.decorations)
+        .with_resizable(style.resizable)
+        .with_maximize_button(style.maximize_button)
+        .with_minimize_button(style.minimize_button)
+        .with_close_button(style.close_button)
+        .with_visible(false)
+        .with_active(!resident_platform)
+        .with_mouse_passthrough(resident_platform)
+        .with_transparent(true)
 }
 
 #[cfg(test)]
@@ -488,6 +508,8 @@ impl ScreenshotApp {
         let state = self.config.ocr_window;
         self.close_capture_viewports(ctx);
         ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+        ctx.send_viewport_cmd(egui::ViewportCommand::MousePassthrough(false));
+        ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
         ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(false));
         ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(false));
         ctx.send_viewport_cmd(egui::ViewportCommand::Decorations(true));
@@ -597,11 +619,14 @@ impl ScreenshotApp {
                 },
             );
         }
-        if capture_overlay_level_for(cfg!(target_os = "macos"))
-            == CaptureOverlayLevel::AboveMainMenu
-        {
-            raise_capture_overlays_above_main_menu();
-        }
+        let text_input_active = self
+            .text_input
+            .as_ref()
+            .is_some_and(|text_state| text_state.is_active);
+        apply_capture_overlay_level(capture_overlay_level_for_input(
+            cfg!(target_os = "macos"),
+            text_input_active,
+        ));
 
         if close_requested {
             self.hide_capture_window(ctx);
@@ -630,8 +655,9 @@ mod tests {
 
     use super::{
         CAPTURE_OVERLAY_TITLE, CaptureOverlayLevel, CompletionDisposition, OCR_WINDOW_MIN_SIZE,
-        capture_overlay_level_for, capture_window_geometry_commands, completion_disposition_for,
-        is_capture_overlay_title, linux_x11_session_supported, overlay_ids_to_close, overlay_specs,
+        capture_overlay_level_for_input, capture_root_viewport, capture_window_geometry_commands,
+        capture_window_style_for, completion_disposition_for, is_capture_overlay_title,
+        linux_x11_session_supported, overlay_ids_to_close, overlay_specs,
     };
 
     fn test_session_with_bounds(bounds: &[(f32, f32, f32, f32)]) -> CaptureSession {
@@ -670,6 +696,37 @@ mod tests {
             commands[2],
             egui::ViewportCommand::WindowLevel(egui::WindowLevel::AlwaysOnTop)
         ));
+    }
+
+    #[test]
+    fn resident_root_window_starts_hidden_without_blocking_pointer_input() {
+        let viewport = capture_root_viewport(capture_window_style_for(true), true);
+
+        assert_eq!(viewport.visible, Some(false));
+        assert_eq!(viewport.active, Some(false));
+        assert_eq!(viewport.mouse_passthrough, Some(true));
+    }
+
+    #[test]
+    fn non_resident_root_window_keeps_pointer_input_enabled() {
+        let viewport = capture_root_viewport(capture_window_style_for(false), false);
+
+        assert_eq!(viewport.active, Some(true));
+        assert_eq!(viewport.mouse_passthrough, Some(false));
+    }
+
+    #[test]
+    fn ocr_window_restores_mouse_input_and_focus_when_shown() {
+        let mut app = crate::app_default::ScreenshotApp::default();
+        let ctx = egui::Context::default();
+        let output = ctx.run(egui::RawInput::default(), |ctx| {
+            app.configure_ocr_window(ctx);
+        });
+        let commands = &output.viewport_output[&egui::ViewportId::ROOT].commands;
+
+        assert!(commands.contains(&egui::ViewportCommand::Visible(true)));
+        assert!(commands.contains(&egui::ViewportCommand::MousePassthrough(false)));
+        assert!(commands.contains(&egui::ViewportCommand::Focus));
     }
 
     #[test]
@@ -769,16 +826,32 @@ mod tests {
     #[test]
     fn macos_capture_overlay_is_raised_above_the_system_menu_bar() {
         assert_eq!(
-            capture_overlay_level_for(true),
+            capture_overlay_level_for_input(true, false),
             CaptureOverlayLevel::AboveMainMenu
         );
         assert_eq!(
-            capture_overlay_level_for(false),
+            capture_overlay_level_for_input(false, false),
             CaptureOverlayLevel::AlwaysOnTop
         );
         assert!(is_capture_overlay_title(CAPTURE_OVERLAY_TITLE));
         assert!(!is_capture_overlay_title("Legend Shot · 快捷键设置"));
         assert!(!is_capture_overlay_title("Legend Shot · 贴图"));
+    }
+
+    #[test]
+    fn macos_text_input_temporarily_uses_regular_always_on_top_level() {
+        assert_eq!(
+            capture_overlay_level_for_input(true, false),
+            CaptureOverlayLevel::AboveMainMenu
+        );
+        assert_eq!(
+            capture_overlay_level_for_input(true, true),
+            CaptureOverlayLevel::AlwaysOnTop
+        );
+        assert_eq!(
+            capture_overlay_level_for_input(false, true),
+            CaptureOverlayLevel::AlwaysOnTop
+        );
     }
 
     #[test]

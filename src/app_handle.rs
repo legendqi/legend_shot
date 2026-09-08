@@ -1,16 +1,33 @@
 use crate::app_default::{Annotation, ScreenshotApp, Tool};
-use crate::ui::{draw_annotation_text, draw_simple_char};
+use crate::ui::{draw_annotation_text, draw_simple_char, load_cjk_font};
 #[cfg(not(target_os = "linux"))]
 use arboard::Clipboard;
 use device_query::MousePosition;
 use eframe::emath::{Pos2, Rect};
 use egui::Color32;
 use image::{ImageBuffer, Rgba};
+use imageproc::point::Point;
 
 fn requires_mosaic_background(annotations: &[Annotation]) -> bool {
     annotations
         .iter()
         .any(|annotation| annotation.tool == Tool::Mosaic)
+}
+
+fn alpha_bounds(image: &ImageBuffer<Rgba<u8>, Vec<u8>>) -> Option<(u32, u32, u32, u32)> {
+    let mut bounds: Option<(u32, u32, u32, u32)> = None;
+    for (x, y, pixel) in image.enumerate_pixels() {
+        if pixel[3] == 0 {
+            continue;
+        }
+        bounds = Some(match bounds {
+            Some((min_x, min_y, max_x, max_y)) => {
+                (min_x.min(x), min_y.min(y), max_x.max(x), max_y.max(y))
+            }
+            None => (x, y, x, y),
+        });
+    }
+    bounds
 }
 
 #[allow(dead_code)]
@@ -271,12 +288,12 @@ impl ScreenshotApp {
             }
             Tool::Arrow => {
                 if let (Some(&start), Some(&end)) = (points.first(), points.last()) {
-                    self.draw_smooth_line(image, start, end, color, annotation);
-                    self.draw_filled_arrow_head(
+                    self.draw_filled_arrow(
                         image,
-                        Pos2::new(end.0 as f32, end.1 as f32),
                         Pos2::new(start.0 as f32, start.1 as f32),
+                        Pos2::new(end.0 as f32, end.1 as f32),
                         color,
+                        annotation.stroke_width,
                         visual_scale,
                     );
                 }
@@ -406,113 +423,44 @@ impl ScreenshotApp {
             }
         }
     }
-    fn draw_filled_arrow_head(
+    fn draw_filled_arrow(
         &self,
         image: &mut ImageBuffer<Rgba<u8>, Vec<u8>>,
+        start: Pos2,
         tip: Pos2,
-        from: Pos2,
         color: Color32,
+        stroke_width: f32,
         visual_scale: f32,
     ) {
-        let arrow_length = 15.0 * visual_scale;
-        let arrow_angle = std::f32::consts::PI / 6.0; // 30度
-
-        let dx = tip.x - from.x;
-        let dy = tip.y - from.y;
-        let length = (dx * dx + dy * dy).sqrt();
-
-        if length < f32::EPSILON {
+        let direction = tip - start;
+        let length = direction.length();
+        if length < 1.0 {
             return;
         }
 
-        // 方向向量
-        let dir_x = dx / length;
-        let dir_y = dy / length;
+        let direction = direction / length;
+        let perpendicular = eframe::emath::Vec2::new(-direction.y, direction.x);
+        let head_length = (15.0 * visual_scale).min(length * 0.75);
+        let head_half_width = (8.0 * visual_scale).min(length * 0.4);
+        let shaft_half_width = (stroke_width / 2.0).max(0.5);
+        let neck = tip - direction * head_length;
+        let polygon = [
+            start + perpendicular * shaft_half_width,
+            neck + perpendicular * shaft_half_width,
+            neck + perpendicular * head_half_width,
+            tip,
+            neck - perpendicular * head_half_width,
+            neck - perpendicular * shaft_half_width,
+            start - perpendicular * shaft_half_width,
+        ]
+        .map(|point| Point::new(point.x.round() as i32, point.y.round() as i32));
 
-        // 计算箭头两侧的点
-        let left_x = tip.x - arrow_length * (dir_x * arrow_angle.cos() - dir_y * arrow_angle.sin());
-        let left_y = tip.y - arrow_length * (dir_x * arrow_angle.sin() + dir_y * arrow_angle.cos());
-
-        let right_x =
-            tip.x - arrow_length * (dir_x * arrow_angle.cos() + dir_y * arrow_angle.sin());
-        let right_y =
-            tip.y - arrow_length * (-dir_x * arrow_angle.sin() + dir_y * arrow_angle.cos());
-
-        // 创建三角形点
-        let points = [(tip.x, tip.y), (left_x, left_y), (right_x, right_y)];
-
-        // 用Bresenham绘制三角形
-        self.draw_filled_triangle(image, points, color);
-    }
-
-    // 绘制实心三角形（填充）
-    fn draw_filled_triangle(
-        &self,
-        image: &mut ImageBuffer<Rgba<u8>, Vec<u8>>,
-        points: [(f32, f32); 3],
-        color: Color32,
-    ) {
-        // 计算三角形边界
-        let x_min = points.iter().map(|p| p.0).fold(f32::INFINITY, f32::min);
-        let x_max = points.iter().map(|p| p.0).fold(f32::NEG_INFINITY, f32::max);
-        let y_min = points.iter().map(|p| p.1).fold(f32::INFINITY, f32::min);
-        let y_max = points.iter().map(|p| p.1).fold(f32::NEG_INFINITY, f32::max);
-
-        // 遍历边界框内的每个像素
-        for y in (y_min as i32)..=(y_max as i32) {
-            for x in (x_min as i32)..=(x_max as i32) {
-                if self.point_in_triangle(x as f32, y as f32, points) {
-                    // 确保在图像范围内
-                    if x >= 0 && x < image.width() as i32 && y >= 0 && y < image.height() as i32 {
-                        image.put_pixel(
-                            x as u32,
-                            y as u32,
-                            Rgba([color.r(), color.g(), color.b(), color.a()]),
-                        );
-                    }
-                }
-            }
-        }
-    }
-
-    // 判断点是否在三角形内（射线法）
-    fn point_in_triangle(&self, x: f32, y: f32, points: [(f32, f32); 3]) -> bool {
-        let (a, b, c) = (points[0], points[1], points[2]);
-
-        // 检查射线与三角形边的交点
-        let mut intersections = 0;
-
-        // 检查边ab
-        if self.intersects_ray(x, y, a, b) {
-            intersections += 1;
-        }
-
-        // 检查边bc
-        if self.intersects_ray(x, y, b, c) {
-            intersections += 1;
-        }
-
-        // 检查边ca
-        if self.intersects_ray(x, y, c, a) {
-            intersections += 1;
-        }
-
-        intersections % 2 == 1
-    }
-
-    // 检查射线是否与线段相交
-    fn intersects_ray(&self, x: f32, y: f32, a: (f32, f32), b: (f32, f32)) -> bool {
-        // 检查线段是否与射线相交
-        if (a.1 <= y && b.1 > y) || (a.1 > y && b.1 <= y) {
-            // 计算交点x坐标
-            let t = (y - a.1) / (b.1 - a.1);
-            let intersect_x = a.0 + t * (b.0 - a.0);
-
-            // 检查交点是否在射线方向（x >= 当前点x）
-            intersect_x > x
-        } else {
-            false
-        }
+        imageproc::drawing::draw_antialiased_polygon_mut(
+            image,
+            &polygon,
+            Rgba([color.r(), color.g(), color.b(), color.a()]),
+            imageproc::pixelops::interpolate,
+        );
     }
 
     // 简单的文本绘制（使用位图字体或简单图形）
@@ -550,46 +498,93 @@ impl ScreenshotApp {
         color: Color32,
         visual_scale: f32,
     ) {
-        let bitmap_scale = visual_scale.round().max(1.0) as u32;
         let radius = (12.0 * visual_scale).round() as i32;
-        let character_offset = (4.0 * visual_scale).round() as i32;
 
         // 绘制圆形背景
         self.draw_circle(image, pos.0, pos.1, radius, color);
-        if let Some(first_char) = number.chars().next()
-            && number.len() == 1
-        {
+        if self.draw_centered_number_text(image, pos, number, visual_scale) {
+            return;
+        }
+
+        let bitmap_scale = visual_scale.round().max(1.0) as u32;
+        let count = number.chars().count() as i32;
+        for (index, character) in number.chars().enumerate() {
+            let offset = (index as i32 * 8 - (count - 1) * 4) * bitmap_scale as i32;
             draw_simple_char(
                 image,
-                pos.0,
+                pos.0 + offset,
                 pos.1,
-                first_char,
+                character,
                 Color32::WHITE,
                 bitmap_scale,
             );
-        } else {
-            for (index, char) in number.chars().enumerate() {
-                if index == 0 {
-                    draw_simple_char(
-                        image,
-                        pos.0 - character_offset,
-                        pos.1,
-                        char,
-                        Color32::WHITE,
-                        bitmap_scale,
-                    );
-                } else {
-                    draw_simple_char(
-                        image,
-                        pos.0 + character_offset,
-                        pos.1,
-                        char,
-                        Color32::WHITE,
-                        bitmap_scale,
-                    );
+        }
+    }
+
+    fn draw_centered_number_text(
+        &self,
+        image: &mut ImageBuffer<Rgba<u8>, Vec<u8>>,
+        pos: MousePosition,
+        number: &str,
+        visual_scale: f32,
+    ) -> bool {
+        let Some(font_data) = load_cjk_font() else {
+            return false;
+        };
+        let Ok(font) = ab_glyph::FontArc::try_from_vec(font_data.as_ref().clone()) else {
+            return false;
+        };
+
+        let mut font_size = 16.0 * visual_scale;
+        let (initial_width, _) = imageproc::drawing::text_size(font_size, &font, number);
+        let available_width = 19.0 * visual_scale;
+        if initial_width as f32 > available_width {
+            font_size *= available_width / initial_width as f32;
+        }
+        let (text_width, text_height) = imageproc::drawing::text_size(font_size, &font, number);
+        let padding = (4.0 * visual_scale).ceil() as u32;
+        let mut glyph = ImageBuffer::from_pixel(
+            text_width + padding * 2,
+            text_height + padding * 2,
+            Rgba([0u8, 0, 0, 0]),
+        );
+        imageproc::drawing::draw_text_mut(
+            &mut glyph,
+            Rgba([255, 255, 255, 255]),
+            padding as i32,
+            padding as i32,
+            font_size,
+            &font,
+            number,
+        );
+
+        let Some((min_x, min_y, max_x, max_y)) = alpha_bounds(&glyph) else {
+            return false;
+        };
+        let glyph_width = max_x - min_x + 1;
+        let glyph_height = max_y - min_y + 1;
+        let target_x = pos.0 - glyph_width as i32 / 2;
+        let target_y = pos.1 - glyph_height as i32 / 2;
+        for source_y in min_y..=max_y {
+            for source_x in min_x..=max_x {
+                let destination_x = target_x + (source_x - min_x) as i32;
+                let destination_y = target_y + (source_y - min_y) as i32;
+                if destination_x < 0
+                    || destination_y < 0
+                    || destination_x >= image.width() as i32
+                    || destination_y >= image.height() as i32
+                {
+                    continue;
+                }
+                let foreground = glyph.get_pixel(source_x, source_y);
+                if foreground[3] != 0 {
+                    let background =
+                        image.get_pixel_mut(destination_x as u32, destination_y as u32);
+                    self.blend_pixels(background, foreground);
                 }
             }
         }
+        true
     }
 
     // 绘制圆形
@@ -910,6 +905,49 @@ mod tests {
 
         assert_eq!(image.dimensions(), (200, 100));
         assert_eq!(image.get_pixel(50, 20).0[..3], [255, 0, 0]);
+    }
+
+    #[test]
+    fn exported_arrow_shaft_is_centered_on_its_direction_axis() {
+        let mut app = app_with_two_solid_displays(false);
+        app.selection_rect = Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(100.0, 50.0)));
+        let arrow = Annotation {
+            tool: Tool::Arrow,
+            points: vec![Pos2::new(80.0, 25.0), Pos2::new(20.0, 25.0)],
+            color: Color32::GREEN,
+            stroke_width: 4.0,
+            text: String::new(),
+            number: None,
+        };
+
+        let image = app.compose_current_selection(&[arrow]).unwrap();
+
+        assert_eq!(image.get_pixel(50, 24).0[..3], [0, 255, 0]);
+        assert_eq!(image.get_pixel(50, 26).0[..3], [0, 255, 0]);
+    }
+
+    #[test]
+    fn exported_number_glyph_has_antialiased_edges() {
+        let mut app = app_with_two_solid_displays(false);
+        app.selection_rect = Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(100.0, 50.0)));
+        let number = Annotation {
+            tool: Tool::Number,
+            points: vec![Pos2::new(50.0, 25.0)],
+            color: Color32::RED,
+            stroke_width: 1.0,
+            text: String::new(),
+            number: Some(8),
+        };
+
+        let image = app.compose_current_selection(&[number]).unwrap();
+        let has_smoothed_glyph_pixel = (17..=33).any(|y| {
+            (42..=58).any(|x| {
+                let pixel = image.get_pixel(x, y).0;
+                pixel[0] == 255 && (1..=254).contains(&pixel[1]) && (1..=254).contains(&pixel[2])
+            })
+        });
+
+        assert!(has_smoothed_glyph_pixel);
     }
 
     #[test]

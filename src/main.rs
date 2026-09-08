@@ -101,15 +101,14 @@ fn main() -> eframe::Result<()> {
     }
 
     let capture_style = crate::app::capture_window_style();
-    let viewport = egui::ViewportBuilder::default()
-        .with_fullscreen(capture_style.fullscreen)
-        .with_decorations(capture_style.decorations)
-        .with_resizable(capture_style.resizable)
-        .with_maximize_button(capture_style.maximize_button)
-        .with_minimize_button(capture_style.minimize_button)
-        .with_close_button(capture_style.close_button)
-        .with_visible(false)
-        .with_transparent(true);
+    let viewport = crate::app::capture_root_viewport(
+        capture_style,
+        cfg!(any(
+            target_os = "macos",
+            target_os = "linux",
+            target_os = "windows"
+        )),
+    );
 
     let mut options = eframe::NativeOptions {
         viewport,

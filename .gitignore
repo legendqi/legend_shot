@@ -1,7 +1,7 @@
 /target
 .idea/
 .vscode
-
+.DS_Store
 .soloncode/
 .worktrees/
 .superpowers/
