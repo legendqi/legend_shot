@@ -161,6 +161,7 @@ WINDOWS_TIMESTAMP_URL
 - GTK3、Ayatana AppIndicator 或 AppIndicator、libxdo 开发包可由 pkg-config 找到。
 - `xclip` 可用。
 - linuxdeploy 可从 `LINUXDEPLOY` 指定的路径或 PATH 找到。
+- linuxdeploy GTK 插件可从 `LINUXDEPLOY_PLUGIN_GTK` 指定的路径、linuxdeploy 同目录或 PATH 找到。
 
 ### DEB
 
@@ -178,7 +179,7 @@ dist/legend-shot_<version>_amd64.deb
 
 ### AppImage
 
-linuxdeploy 接收主程序、`xclip`、Desktop 文件、图标和仓库提供的自定义 `AppRun`。由于应用在 Linux 复制图片时通过进程名启动 `xclip`，而 linuxdeploy 不会自动修改运行时 `PATH`，自定义 `AppRun` 必须将 AppDir 的 `usr/bin` 前置到 `PATH`，再启动 `usr/bin/legend_shot`。`xclip` 作为额外 executable 交给 linuxdeploy，以便同时收集其动态库。
+linuxdeploy 接收主程序、`xclip`、Desktop 文件、图标和仓库提供的自定义 `AppRun`，并启用 GTK 插件收集 GTK 运行时资源。由于应用在 Linux 复制图片时通过进程名启动 `xclip`，而 linuxdeploy 不会自动修改运行时 `PATH`，自定义 `AppRun` 必须将 AppDir 的 `usr/bin` 前置到 `PATH`，再启动 `usr/bin/legend_shot`。`xclip` 作为额外 executable 交给 linuxdeploy，以便同时收集其动态库。
 
 输出统一重命名为：
 
