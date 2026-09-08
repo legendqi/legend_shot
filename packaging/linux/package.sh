@@ -7,6 +7,9 @@ DIST_DIR="$PROJECT_ROOT/dist"
 STAGE_DIR="$DIST_DIR/packaging-linux-x86_64"
 TARGET="x86_64-unknown-linux-gnu"
 CHECK_ONLY=false
+PACKAGING_TOOL_CACHE_DIR="${PACKAGING_TOOL_CACHE_DIR:-$PROJECT_ROOT/.local/packaging-tools}"
+LINUXDEPLOY_URL="${LINUXDEPLOY_URL:-https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage}"
+LINUXDEPLOY_PLUGIN_GTK_URL="${LINUXDEPLOY_PLUGIN_GTK_URL:-https://raw.githubusercontent.com/linuxdeploy/linuxdeploy-plugin-gtk/master/linuxdeploy-plugin-gtk.sh}"
 
 if [[ $# -gt 1 ]]; then
     printf 'Usage: %s [--check]\n' "$0" >&2
@@ -31,7 +34,51 @@ need_command() {
         || fail "missing command '$1'; install it manually, then retry"
 }
 
+libxdo_development_files_exist() {
+    pkg-config --exists xdo && return 0
+
+    local include_path
+    local library_dir
+    for include_path in /usr/include/xdo.h /usr/local/include/xdo.h; do
+        [[ -f "$include_path" ]] || continue
+        for library_dir in /usr/lib/*-linux-gnu /usr/lib64 /usr/lib /usr/local/lib; do
+            [[ -e "$library_dir/libxdo.so" ]] && return 0
+        done
+    done
+    return 1
+}
+
+download_packaging_tool() {
+    local url="$1"
+    local destination="$2"
+    local temporary
+    mkdir -p "$PACKAGING_TOOL_CACHE_DIR"
+    temporary="$(mktemp "$PACKAGING_TOOL_CACHE_DIR/.download.XXXXXX")"
+    printf 'Downloading %s\n' "$url" >&2
+    if command -v curl >/dev/null 2>&1; then
+        if ! curl --location --fail --silent --show-error --output "$temporary" "$url"; then
+            rm -f "$temporary"
+            fail "failed to download packaging tool: $url"
+        fi
+    elif command -v wget >/dev/null 2>&1; then
+        if ! wget --quiet --output-document="$temporary" "$url"; then
+            rm -f "$temporary"
+            fail "failed to download packaging tool: $url"
+        fi
+    else
+        rm -f "$temporary"
+        fail "curl or wget is required to download Linux packaging tools"
+    fi
+    [[ -s "$temporary" ]] || {
+        rm -f "$temporary"
+        fail "downloaded packaging tool is empty: $url"
+    }
+    chmod 755 "$temporary"
+    mv "$temporary" "$destination"
+}
+
 resolve_linuxdeploy() {
+    local cached="$PACKAGING_TOOL_CACHE_DIR/linuxdeploy-x86_64.AppImage"
     if [[ -n "${LINUXDEPLOY:-}" ]]; then
         printf '%s\n' "$LINUXDEPLOY"
         return
@@ -44,12 +91,16 @@ resolve_linuxdeploy() {
         command -v linuxdeploy-x86_64.AppImage
         return
     fi
-    fail "linuxdeploy was not found; set LINUXDEPLOY or add it to PATH"
+    if [[ ! -x "$cached" ]]; then
+        download_packaging_tool "$LINUXDEPLOY_URL" "$cached"
+    fi
+    printf '%s\n' "$cached"
 }
 
 resolve_gtk_plugin() {
     local linuxdeploy_dir="$1"
     local candidate
+    local cached="$PACKAGING_TOOL_CACHE_DIR/linuxdeploy-plugin-gtk.sh"
     if [[ -n "${LINUXDEPLOY_PLUGIN_GTK:-}" ]]; then
         printf '%s\n' "$LINUXDEPLOY_PLUGIN_GTK"
         return
@@ -64,7 +115,10 @@ resolve_gtk_plugin() {
             return
         fi
     done
-    fail "linuxdeploy GTK plugin was not found; set LINUXDEPLOY_PLUGIN_GTK or add it to PATH"
+    if [[ ! -x "$cached" ]]; then
+        download_packaging_tool "$LINUXDEPLOY_PLUGIN_GTK_URL" "$cached"
+    fi
+    printf '%s\n' "$cached"
 }
 
 [[ "$(uname -s)" == "Linux" ]] \
@@ -80,17 +134,19 @@ rustup target list --installed | grep -Fxq "$TARGET" \
     || fail "missing Rust target; run: rustup target add $TARGET"
 pkg-config --exists gtk+-3.0 \
     || fail "GTK3 development files are missing"
-pkg-config --exists xdo \
+libxdo_development_files_exist \
     || fail "libxdo development files are missing"
 if ! pkg-config --exists ayatana-appindicator3-0.1 \
     && ! pkg-config --exists appindicator3-0.1; then
     fail "Ayatana AppIndicator or AppIndicator development files are missing"
 fi
 
-LINUXDEPLOY_BIN="$(realpath "$(resolve_linuxdeploy)")"
+LINUXDEPLOY_RESOLVED="$(resolve_linuxdeploy)" || exit $?
+LINUXDEPLOY_BIN="$(realpath "$LINUXDEPLOY_RESOLVED")"
 [[ -f "$LINUXDEPLOY_BIN" && -x "$LINUXDEPLOY_BIN" ]] \
     || fail "linuxdeploy is not executable: $LINUXDEPLOY_BIN"
-GTK_PLUGIN="$(realpath "$(resolve_gtk_plugin "$(dirname "$LINUXDEPLOY_BIN")")")"
+GTK_PLUGIN_RESOLVED="$(resolve_gtk_plugin "$(dirname "$LINUXDEPLOY_BIN")")" || exit $?
+GTK_PLUGIN="$(realpath "$GTK_PLUGIN_RESOLVED")"
 [[ -f "$GTK_PLUGIN" && -x "$GTK_PLUGIN" ]] \
     || fail "linuxdeploy GTK plugin is not executable: $GTK_PLUGIN"
 
@@ -164,6 +220,7 @@ APPIMAGE_OUTPUT="$DIST_DIR/LegendShot-${VERSION}-x86_64.AppImage"
 rm -f "$APPIMAGE_OUTPUT"
 PATH="$PLUGIN_PATH:$PATH" \
 ARCH=x86_64 \
+APPIMAGE_EXTRACT_AND_RUN=1 \
 LDAI_OUTPUT="$APPIMAGE_OUTPUT" \
 "$LINUXDEPLOY_BIN" \
     --appdir "$APPDIR" \
@@ -187,7 +244,7 @@ EXTRACT_ROOT="$EXTRACT_DIR/squashfs-root"
     || fail "AppImage is missing legend_shot"
 find "$EXTRACT_ROOT/usr/bin" -type f -name xclip -perm -u+x | grep -q . \
     || fail "AppImage is missing xclip"
-find "$EXTRACT_ROOT" -maxdepth 1 -type f -name '*.desktop' | grep -q . \
+find "$EXTRACT_ROOT" -maxdepth 1 \( -type f -o -type l \) -name '*.desktop' | grep -q . \
     || fail "AppImage is missing its root desktop file"
 
 printf 'Linux packaging completed for Legend Shot %s (X11 only).\n' "$VERSION"
