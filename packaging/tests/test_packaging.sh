@@ -50,12 +50,31 @@ test_windows() {
     assert_contains "packaging/windows/installer.nsi" 'WriteUninstaller'
 }
 
+test_linux() {
+    local file
+    for file in package.sh AppRun legend-shot.desktop control.in; do
+        assert_file "packaging/linux/$file"
+    done
+    bash -n "$PROJECT_ROOT/packaging/linux/package.sh"
+    bash -n "$PROJECT_ROOT/packaging/linux/AppRun"
+    assert_contains "packaging/linux/package.sh" 'x86_64-unknown-linux-gnu'
+    assert_contains "packaging/linux/package.sh" 'LINUXDEPLOY_PLUGIN_GTK'
+    assert_contains "packaging/linux/package.sh" '--custom-apprun'
+    assert_contains "packaging/linux/package.sh" '--plugin gtk'
+    assert_contains "packaging/linux/package.sh" 'LDAI_OUTPUT'
+    assert_contains "packaging/linux/AppRun" 'usr/bin:$PATH'
+    assert_contains "packaging/linux/AppRun" 'usr/bin/legend_shot'
+    assert_contains "packaging/linux/control.in" 'xclip'
+}
+
 case "${1:-all}" in
     dispatcher) test_dispatcher ;;
     windows) test_windows ;;
+    linux) test_linux ;;
     all)
         test_dispatcher
         test_windows
+        test_linux
         ;;
     *) fail "unknown test group: ${1:-}" ;;
 esac

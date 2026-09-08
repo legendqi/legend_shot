@@ -1,0 +1,8 @@
+#!/bin/sh
+set -eu
+
+APPDIR_PATH="${APPDIR:-$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)}"
+PATH="$APPDIR_PATH/usr/bin:$PATH"
+export PATH
+
+exec "$APPDIR_PATH/usr/bin/legend_shot" "$@"

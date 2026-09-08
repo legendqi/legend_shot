@@ -1,0 +1,10 @@
+Package: legend-shot
+Version: @VERSION@
+Section: graphics
+Priority: optional
+Architecture: amd64
+Maintainer: Legend Shot
+Depends: libgtk-3-0, libayatana-appindicator3-1 | libappindicator3-1, libxdo3, xclip
+Description: Screenshot and annotation tool
+ Legend Shot provides local screenshot capture, annotation, clipboard,
+ OCR, and experimental multi-monitor capture under Linux X11.

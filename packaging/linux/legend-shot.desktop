@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Legend Shot
+Comment=Screenshot and annotation tool
+Exec=legend_shot
+Icon=legend-shot
+Terminal=false
+Categories=Graphics;Utility;
+StartupNotify=false
