@@ -23,7 +23,7 @@
 
 ## What is Legend Shot?
 
-Legend Shot is a desktop screenshot utility built with Rust, `egui`, and `xcap`. On macOS and Linux it stays available in the top bar until you choose Capture; on Windows it opens the capture overlay immediately. The overlay lets you select a region and provides a compact toolbar for annotation, OCR, copying, and saving.
+Legend Shot is a desktop screenshot utility built with Rust, `egui`, and `xcap`. On macOS, Windows, and Linux X11 it stays in the tray/menu bar; use the global shortcut or choose Capture to open the overlay. The overlay lets you select a region and provides a compact toolbar for annotation, OCR, copying, and saving.
 
 The project focuses on a fast capture workflow, native-resolution output, cross-platform behavior, and local processing. OCR inference runs locally after the required model files are available.
 
@@ -44,7 +44,11 @@ Legend Shot is under active development. The current package version is `0.1.0`;
 | Local OCR | Extract text using PP-OCRv5 mobile detection and recognition models through `oar-ocr`. |
 | Copy and save | Copy the annotated image to the clipboard or save it as a PNG with a native file dialog. |
 | Cross-platform UI | Run the same capture workflow on macOS, Windows, and X11-based Linux desktops. |
-| Persistent preferences | Remember the last save directory and OCR result-window geometry. |
+| Global shortcut | Defaults to `Command+Shift+A` on macOS, `Ctrl+Shift+A` on Windows/Linux; change it in tray shortcut settings. Registration conflicts retain the previous shortcut. |
+| Precise selection | Eight resize handles, logical/output dimensions, original-pixel magnifier, and keyboard movement/resizing. |
+| Undo and redo | Undo/redo annotations, region moves, and resizing, with up to 100 edit actions. |
+| Pinned screenshots | Keep annotated selections in separate always-on-top windows, with multiple pins, dragging, zoom, and opacity controls. |
+| Persistent preferences | Remember the global shortcut, last save directory, and OCR result-window geometry. |
 
 ## Multi-monitor support
 
@@ -98,24 +102,38 @@ On macOS, the first Capture request asks for screen-recording permission for Leg
 
 ## Usage
 
-1. Start Legend Shot. On macOS/Linux, open its top-bar menu and choose **Capture**; the only other menu item is **Exit**. Windows enters capture immediately.
+1. Start Legend Shot and use the global shortcut or choose **Capture** from its tray/menu bar icon. The menu also provides shortcut settings and **Exit**.
 2. Drag across one or more screens to select a capture region.
 3. Use the toolbar to annotate, run OCR, copy, or save the selection.
 4. Finish a text annotation with `Ctrl+Enter` on Windows/Linux or `Command+Enter` on macOS.
-5. On macOS/Linux, copy, save, or `Esc` returns to the tray; choose **Exit** from the tray menu to terminate the process. Windows exits after completing or cancelling capture.
+5. All three platforms return to the tray after capture completion or cancellation. Choose **Exit** from the tray to terminate the process. Copy/save failures keep your selection and display an error.
 
 | Input | Action |
 | --- | --- |
 | Drag on the overlay | Select a screenshot region. |
-| Double-click inside the selection | Copy the selection, then return to the tray on macOS/Linux or exit on Windows. |
-| `Esc` | Cancel the current operation; closing the outer capture returns to the tray on macOS/Linux or exits on Windows. |
-| Move | Reposition the selected region. |
+| Double-click inside the selection | Copy the selection in selection/move mode, then return to the tray. |
+| `Esc` | Cancel the current operation; closing the outer capture returns to the tray. |
+| Move | Reposition the selection; drag its eight handles in selection/move mode to resize. |
+| Arrow keys / `Shift` + arrows | Move by 1 / 10 logical pixels. |
+| `Alt` + arrows / `Alt+Shift` + arrows | Resize the right/bottom edge by 1 / 10 logical pixels (`Option` on macOS). |
+| `Ctrl/Cmd+Z` | Undo. |
+| `Ctrl/Cmd+Shift+Z` | Redo; Windows/Linux also support `Ctrl+Y`. |
+| `Ctrl/Cmd+C` / `Ctrl/Cmd+S` | Copy / save the selection. |
 | Pen / Rectangle / Arrow | Draw visual annotations. |
 | Text | Add multilingual text using the system input method. |
 | Mosaic | Pixelate sensitive content. |
 | Number | Add sequential numbered markers. |
 | OCR | Recognize text in the selected region and open the result view. |
+| Pin (贴图) | Keep the annotated selection on top and finish the capture. |
 | Copy / Save | Export the selected region with annotations. |
+
+While editing text, copy/undo shortcuts belong to the text editor and selection arrow keys are inactive. New edits clear redo history. Dimensions show both logical size and actual output pixels, following the existing highest-scale composition rule for mixed DPI.
+
+In shortcut settings, click the shortcut card and press a new combination such as `Ctrl+Shift+A` or `Command+Shift+A`, then save it. Close the settings window before testing the shortcut. Global presses during capture and native save dialogs do not queue additional captures.
+
+Drag a pin to move it, scroll to zoom, or hold `Ctrl/Cmd` while scrolling to adjust opacity. Right-click opens a separate control panel with size reset, copy, save, and close actions. A focused pin also accepts `Ctrl/Cmd+C`, `Ctrl/Cmd+S`, and `Esc`. Copying and saving always use the annotated original-resolution image, independent of display zoom and opacity.
+
+Existing pins hide during the next capture and return after completion, cancellation, or a capture failure. They also hide while a pin's native save dialog is open so they cannot cover it. Multiple pins can remain open; closing one keeps other pins and the tray running. Pins last for the current app session and are cleared on exit.
 
 ## Command-line test mode
 
@@ -170,7 +188,7 @@ For `linux-arm64` cross-builds, install `gcc-aarch64-linux-gnu` and provide ARM6
 | Platform | Notes |
 | --- | --- |
 | macOS | Starts in the menu bar. Screen & System Audio Recording permission is requested by the first capture action; development builds launched from a terminal use the terminal's permission identity. |
-| Windows | Starts capture immediately and exits after completion. It uses the native clipboard implementation through `arboard`; Microsoft YaHei or SimHei is used when available for CJK rendering. |
+| Windows | Starts in the system tray and returns there after capture. It uses the native clipboard implementation through `arboard`; Microsoft YaHei or SimHei is used when available for CJK rendering. |
 | Linux | Starts in the top bar and currently targets X11. The session must support AppIndicator/StatusNotifier; `xclip` is required for copying PNG images. |
 
 ## OCR and privacy
@@ -181,6 +199,7 @@ Legend Shot uses the PP-OCRv5 mobile detection and recognition models provided t
 
 The application stores `config.json` in the platform-standard configuration directory resolved by the Rust `directories` crate. It currently persists:
 
+- The global capture shortcut.
 - The last directory used to save a screenshot.
 - OCR result-window position and size.
 
@@ -195,12 +214,17 @@ src/
 ├── app.rs            # Main egui update loop and view/window transitions
 ├── app_draw.rs       # Screen rendering, selection, and pointer/keyboard input
 ├── app_toolbar.rs    # Annotation toolbar and on-canvas text editor
+├── app_history.rs    # Selection/annotation editing history
+├── app_settings.rs   # Global shortcut settings viewport
+├── app_pin.rs        # Pinned screenshot windows, display controls, and export
+├── hotkey.rs         # Native hotkey registration, rollback, and mode gating
+├── selection.rs      # Selection geometry, handles, dimensions, and magnifier
 ├── app_handle.rs     # Cropping, annotation export, clipboard, and file saving
 ├── app_ocr.rs        # OCR capture flow and result-state transitions
 ├── app_ocr_view.rs   # OCR result interface
 ├── ocr.rs            # OCR session, worker thread, timeout, and error model
 ├── ocr_oar.rs        # oar-ocr backend and PP-OCRv5 result normalization
-├── tray.rs           # Native menu creation and macOS/Linux tray runtimes
+├── tray.rs           # Native menu creation and macOS/Windows/Linux tray runtimes
 └── ui.rs             # Icons, textures, fonts, and image drawing utilities
 ```
 

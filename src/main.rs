@@ -10,13 +10,18 @@ mod app;
 mod app_default;
 mod app_draw;
 mod app_handle;
+mod app_history;
 mod app_ocr;
 mod app_ocr_view;
+mod app_pin;
+mod app_settings;
 mod app_toolbar;
 mod display;
+mod hotkey;
 mod ocr;
 mod ocr_oar;
-#[cfg(any(target_os = "macos", target_os = "linux"))]
+mod selection;
+#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
 mod tray;
 mod ui;
 
@@ -84,7 +89,7 @@ fn main() -> eframe::Result<()> {
     app.ocr_worker = Some(spawn_ocr_worker(OarOcrFactory::new()));
 
     // 非托盘平台在窗口显示前截图，避免截图包含遮罩层。
-    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
     if let Err(error) = app.capture_screens() {
         let message = if error.contains("未检测到") {
             crate::app::NO_MONITORS
@@ -142,11 +147,12 @@ fn main() -> eframe::Result<()> {
 
             cc.egui_ctx.set_fonts(fonts);
 
-            #[cfg(any(target_os = "macos", target_os = "linux"))]
+            #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
             {
                 let tray_runtime = crate::tray::TrayRuntime::start(cc.egui_ctx.clone())
                     .map_err(std::io::Error::other)?;
                 app.install_tray(tray_runtime);
+                app.initialize_hotkeys(&cc.egui_ctx);
             }
 
             Ok(Box::new(app))

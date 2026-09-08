@@ -15,6 +15,16 @@ fn requires_mosaic_background(annotations: &[Annotation]) -> bool {
 
 #[allow(dead_code)]
 impl ScreenshotApp {
+    pub(crate) fn annotations_for_export(&self) -> Vec<Annotation> {
+        let mut annotations = self.annotations.clone();
+        if let (Some(text_state), Some(annotation)) = (&self.text_input, &self.current_annotation) {
+            let mut annotation = annotation.clone();
+            annotation.text = text_state.text.clone();
+            annotations.push(annotation);
+        }
+        annotations
+    }
+
     pub fn compose_current_selection(
         &self,
         annotations: &[Annotation],
@@ -123,15 +133,22 @@ impl ScreenshotApp {
             annotations.push(new_annotation);
         }
 
-        if let Ok(cropped_image) = self.compose_current_selection(&annotations) {
-            let restore_toolbar = self.show_toolbar;
-            if !self.native_save_dialog_state.begin(restore_toolbar) {
+        let cropped_image = match self.compose_current_selection(&annotations) {
+            Ok(image) => image,
+            Err(error) => {
+                self.capture_error = Some(error);
+                ctx.request_repaint();
                 return;
             }
-            self.pending_save_image = Some(cropped_image);
-            self.show_toolbar = false;
-            ctx.request_repaint();
+        };
+        let restore_toolbar = self.show_toolbar;
+        if !self.native_save_dialog_state.begin(restore_toolbar) {
+            return;
         }
+        self.capture_error = None;
+        self.pending_save_image = Some(cropped_image);
+        self.show_toolbar = false;
+        ctx.request_repaint();
     }
 
     pub(crate) fn choose_native_save_path(&self) -> Option<std::path::PathBuf> {
@@ -187,6 +204,17 @@ impl ScreenshotApp {
         self.copy_current_selection_with(&annotations, |image| self.set_to_clipboard(image))?;
         eprintln!("=== GUI 模式: 复制到剪贴板成功 ===");
         Ok(())
+    }
+
+    pub(crate) fn copy_selection_and_finish(&mut self, ctx: &egui::Context) {
+        match self.copy_to_clipboard() {
+            Ok(()) => self.hide_capture_window(ctx),
+            Err(error) => {
+                self.capture_error = Some(error);
+                self.show_toolbar = self.selection_rect.is_some();
+                ctx.request_repaint();
+            }
+        }
     }
 
     fn copy_current_selection_with<F>(
@@ -703,6 +731,35 @@ impl ScreenshotApp {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn copy_action_failure_preserves_selection_and_shows_error() {
+        let selection = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(20.0, 20.0));
+        let mut app = ScreenshotApp {
+            selection_rect: Some(selection),
+            ..Default::default()
+        };
+        app.copy_selection_and_finish(&egui::Context::default());
+        assert_eq!(app.selection_rect, Some(selection));
+        assert!(app.show_toolbar);
+        assert!(app.capture_error.is_some());
+        assert_eq!(app.lifecycle, crate::app_default::AppLifecycle::Capturing);
+    }
+
+    #[test]
+    fn save_composition_failure_preserves_selection_and_shows_error() {
+        let selection = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(20.0, 20.0));
+        let mut app = ScreenshotApp {
+            selection_rect: Some(selection),
+            show_toolbar: true,
+            ..Default::default()
+        };
+        app.trigger_save_dialog(&egui::Context::default());
+        assert_eq!(app.selection_rect, Some(selection));
+        assert!(app.show_toolbar);
+        assert!(app.capture_error.is_some());
+        assert!(app.pending_save_image.is_none());
+    }
+
     use eframe::emath::{Pos2, Rect, Vec2};
     use egui::Color32;
     use image::{Rgba, RgbaImage};

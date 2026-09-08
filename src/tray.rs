@@ -1,10 +1,12 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TrayCommand {
     Capture,
+    Settings,
     Exit,
 }
 
 const CAPTURE_MENU_ID: &str = "legend-shot.capture";
+const SETTINGS_MENU_ID: &str = "legend-shot.settings";
 const EXIT_MENU_ID: &str = "legend-shot.exit";
 const MACOS_TRAY_ICON_PNG: &[u8] = include_bytes!("icon/tray-focus-32.png");
 const LINUX_TRAY_ICON_PNG: &[u8] = include_bytes!("icon/tray-focus-linux-32.png");
@@ -24,12 +26,17 @@ struct TrayMenuSpec {
     command: TrayCommand,
 }
 
-fn menu_specs() -> [TrayMenuSpec; 2] {
+fn menu_specs() -> [TrayMenuSpec; 3] {
     [
         TrayMenuSpec {
             id: CAPTURE_MENU_ID,
             label: "截图",
             command: TrayCommand::Capture,
+        },
+        TrayMenuSpec {
+            id: SETTINGS_MENU_ID,
+            label: "快捷键设置",
+            command: TrayCommand::Settings,
         },
         TrayMenuSpec {
             id: EXIT_MENU_ID,
@@ -42,6 +49,7 @@ fn menu_specs() -> [TrayMenuSpec; 2] {
 fn command_for_menu_id(id: &str) -> Option<TrayCommand> {
     match id {
         CAPTURE_MENU_ID => Some(TrayCommand::Capture),
+        SETTINGS_MENU_ID => Some(TrayCommand::Settings),
         EXIT_MENU_ID => Some(TrayCommand::Exit),
         _ => None,
     }
@@ -69,8 +77,9 @@ fn build_tray(
             .all(|spec| command_for_menu_id(spec.id) == Some(spec.command))
     );
     let capture = MenuItem::with_id(specs[0].id, specs[0].label, true, None);
-    let exit = MenuItem::with_id(specs[1].id, specs[1].label, true, None);
-    let menu = Menu::with_items(&[&capture, &exit])
+    let settings = MenuItem::with_id(specs[1].id, specs[1].label, true, None);
+    let exit = MenuItem::with_id(specs[2].id, specs[2].label, true, None);
+    let menu = Menu::with_items(&[&capture, &settings, &exit])
         .map_err(|error| format!("托盘菜单创建失败: {error}"))?;
 
     MenuEvent::set_event_handler(Some(move |event: tray_icon::menu::MenuEvent| {
@@ -92,7 +101,7 @@ fn build_tray(
 
 pub(crate) struct TrayRuntime {
     command_receiver: std::sync::mpsc::Receiver<TrayCommand>,
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     _icon: tray_icon::TrayIcon,
     #[cfg(target_os = "linux")]
     shutdown_sender: std::sync::mpsc::Sender<()>,
@@ -102,7 +111,7 @@ impl TrayRuntime {
     pub(crate) fn start(ctx: egui::Context) -> Result<Self, String> {
         let (command_sender, command_receiver) = std::sync::mpsc::channel();
 
-        #[cfg(target_os = "macos")]
+        #[cfg(any(target_os = "macos", target_os = "windows"))]
         {
             let icon = build_tray(command_sender, ctx)?;
             Ok(Self {
@@ -180,6 +189,10 @@ mod tests {
             Some(TrayCommand::Capture)
         );
         assert_eq!(command_for_menu_id(EXIT_MENU_ID), Some(TrayCommand::Exit));
+        assert_eq!(
+            command_for_menu_id(SETTINGS_MENU_ID),
+            Some(TrayCommand::Settings)
+        );
         assert_eq!(command_for_menu_id("legend-shot.unknown"), None);
     }
 
@@ -224,16 +237,23 @@ mod tests {
     }
 
     #[test]
-    fn menu_contains_only_capture_then_exit() {
+    fn menu_contains_capture_settings_then_exit() {
         let specs = menu_specs();
-        assert_eq!(specs.len(), 2);
+        assert_eq!(specs.len(), 3);
         assert_eq!(
             (specs[0].id, specs[0].label, specs[0].command),
             (CAPTURE_MENU_ID, "截图", TrayCommand::Capture)
         );
+        let exit = specs.last().unwrap();
         assert_eq!(
-            (specs[1].id, specs[1].label, specs[1].command),
+            (exit.id, exit.label, exit.command),
             (EXIT_MENU_ID, "退出", TrayCommand::Exit)
+        );
+        assert_eq!(specs[1].id, "legend-shot.settings");
+        assert_eq!(specs[1].label, "快捷键设置");
+        assert_eq!(
+            command_for_menu_id(specs[1].id),
+            Some(TrayCommand::Settings)
         );
     }
 }

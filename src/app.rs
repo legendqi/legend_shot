@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 
-use crate::app_default::{AppLifecycle, AppSignal, AppView, ScreenshotApp};
+use crate::app_default::{AppLifecycle, AppView, ScreenshotApp};
 use crate::ocr::OcrViewState;
 use eframe::App;
 use egui::Visuals;
@@ -134,9 +134,25 @@ pub(crate) fn completion_disposition_for(resident_platform: bool) -> CompletionD
 
 impl App for ScreenshotApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        #[cfg(any(target_os = "macos", target_os = "linux"))]
+        #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
         {
             self.poll_tray_commands(ctx);
+            if let Some(runtime) = &self.hotkey_runtime {
+                runtime.set_capture_enabled(
+                    self.lifecycle == AppLifecycle::TrayIdle
+                        && !self.shortcut_settings.open
+                        && !self.pins.is_saving(),
+                );
+            }
+            let triggered = self
+                .hotkey_runtime
+                .as_ref()
+                .is_some_and(|runtime| runtime.take_triggered());
+            if triggered && !self.shortcut_settings.open {
+                self.begin_tray_capture(ctx);
+            }
+            self.draw_shortcut_settings(ctx);
+            self.draw_pinned_images(ctx);
             if self.lifecycle != AppLifecycle::Exiting
                 && ctx.input(|input| input.viewport().close_requested())
             {
@@ -145,6 +161,14 @@ impl App for ScreenshotApp {
                 return;
             }
             if self.lifecycle != AppLifecycle::Capturing {
+                return;
+            }
+
+            if self.pin_capture_state != crate::app_pin::PinCaptureState::Idle {
+                if self.pin_capture_state.after_hidden_frame(Instant::now()) {
+                    self.capture_prepared_screens(ctx);
+                }
+                ctx.request_repaint_after(Duration::from_millis(20));
                 return;
             }
 
@@ -204,6 +228,9 @@ impl ScreenshotApp {
         self.clear_capture_session();
         if resident_platform {
             self.lifecycle.finish_capture();
+            if let Some(runtime) = &self.hotkey_runtime {
+                runtime.set_capture_enabled(!self.shortcut_settings.open && !self.pins.is_saving());
+            }
         } else {
             self.lifecycle.exit();
         }
@@ -219,13 +246,13 @@ impl ScreenshotApp {
         self.finish_failed_capture(resident_platform);
     }
 
-    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
     pub(crate) fn install_tray(&mut self, tray_runtime: crate::tray::TrayRuntime) {
         self.tray_runtime = Some(tray_runtime);
         self.lifecycle = AppLifecycle::TrayIdle;
     }
 
-    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
     fn poll_tray_commands(&mut self, ctx: &egui::Context) {
         let mut commands = Vec::new();
         if let Some(runtime) = &self.tray_runtime {
@@ -237,20 +264,30 @@ impl ScreenshotApp {
         for command in commands {
             match command {
                 crate::tray::TrayCommand::Capture => self.begin_tray_capture(ctx),
+                crate::tray::TrayCommand::Settings => self.open_shortcut_settings(ctx),
                 crate::tray::TrayCommand::Exit => self.exit_application(ctx),
             }
         }
     }
 
-    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
     fn begin_tray_capture(&mut self, ctx: &egui::Context) {
+        if self.shortcut_settings.open || self.pins.is_saving() {
+            return;
+        }
         if !self.lifecycle.begin_capture() {
             return;
+        }
+        if let Some(runtime) = &self.hotkey_runtime {
+            runtime.set_capture_enabled(false);
         }
 
         #[cfg(target_os = "macos")]
         if !crate::macos_screen_capture_is_ready() {
             self.lifecycle.finish_capture();
+            if let Some(runtime) = &self.hotkey_runtime {
+                runtime.set_capture_enabled(true);
+            }
             return;
         }
 
@@ -272,6 +309,16 @@ impl ScreenshotApp {
         }
 
         self.reset_capture_state();
+        if !self.pins.is_empty() {
+            self.pin_capture_state = crate::app_pin::PinCaptureState::Hiding;
+            ctx.request_repaint();
+            return;
+        }
+        self.capture_prepared_screens(ctx);
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+    fn capture_prepared_screens(&mut self, ctx: &egui::Context) {
         if let Err(error) = self.capture_screens() {
             let message = if error.contains("未检测到") {
                 NO_MONITORS
@@ -288,6 +335,7 @@ impl ScreenshotApp {
     }
 
     fn reset_capture_state(&mut self) {
+        self.pin_capture_state = crate::app_pin::PinCaptureState::Idle;
         self.capture_session = None;
         self.display_textures.clear();
         self.selection_rect = None;
@@ -297,6 +345,8 @@ impl ScreenshotApp {
         self.move_start = egui::Pos2::ZERO;
         self.current_tool = crate::app_default::Tool::Select;
         self.annotations.clear();
+        self.edit_history = crate::app_history::EditHistory::default();
+        self.capture_error = None;
         self.current_annotation = None;
         self.text_input = None;
         self.number_input = None;
@@ -310,6 +360,7 @@ impl ScreenshotApp {
         self.last_primary_down = false;
         self.is_selecting = false;
         self.is_moving_box = false;
+        self.resize_handle = None;
         self.pending_save_image = None;
         self.native_save_dialog_state = crate::app_default::NativeSaveDialogState::Idle;
         self.capture_reveal_state = crate::app_default::CaptureRevealState::Idle;
@@ -321,11 +372,21 @@ impl ScreenshotApp {
 
     pub(crate) fn hide_capture_window(&mut self, ctx: &egui::Context) {
         self.close_capture_viewports(ctx);
-        match completion_disposition_for(cfg!(any(target_os = "macos", target_os = "linux"))) {
+        match completion_disposition_for(cfg!(any(
+            target_os = "macos",
+            target_os = "linux",
+            target_os = "windows"
+        ))) {
             CompletionDisposition::Hide => {
                 self.clear_capture_session();
                 self.lifecycle.finish_capture();
+                if let Some(runtime) = &self.hotkey_runtime {
+                    runtime.set_capture_enabled(
+                        !self.shortcut_settings.open && !self.pins.is_saving(),
+                    );
+                }
                 ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+                ctx.request_repaint_of(egui::ViewportId::ROOT);
             }
             CompletionDisposition::Close => {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -333,7 +394,7 @@ impl ScreenshotApp {
         }
     }
 
-    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
     fn exit_application(&mut self, ctx: &egui::Context) {
         self.lifecycle.exit();
         if let Some(runtime) = &mut self.tray_runtime {
@@ -364,6 +425,7 @@ impl ScreenshotApp {
                 }
                 Err(error) => {
                     eprintln!("{error}");
+                    self.capture_error = Some(error);
                     self.cancel_native_save_dialog(restore_toolbar);
                     ctx.request_repaint();
                     return false;
@@ -456,7 +518,6 @@ impl ScreenshotApp {
 
     fn update_capture_view(&mut self, ctx: &egui::Context) {
         self.update_capture_viewports(ctx);
-        self.process_capture_signals(ctx);
     }
 
     fn update_capture_viewports(&mut self, ctx: &egui::Context) {
@@ -509,22 +570,6 @@ impl ScreenshotApp {
         };
         for viewport_id in overlay_ids_to_close(session) {
             ctx.send_viewport_cmd_to(viewport_id, egui::ViewportCommand::Close);
-        }
-    }
-
-    fn process_capture_signals(&mut self, ctx: &egui::Context) {
-        let pending_action = self.signal_receiver.as_ref().and_then(|receiver| {
-            receiver
-                .lock()
-                .ok()
-                .and_then(|receiver| receiver.try_recv().ok())
-        });
-        match pending_action {
-            Some(AppSignal::Copy) => {
-                let _ = self.copy_to_clipboard();
-                self.hide_capture_window(ctx);
-            }
-            None => {}
         }
     }
 }

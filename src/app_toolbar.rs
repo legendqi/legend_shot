@@ -1,13 +1,13 @@
-use crate::app_default::{Annotation, AppSignal, ScreenshotApp, Tool};
+use crate::app_default::{Annotation, ScreenshotApp, Tool};
 use crate::display::place_toolbar;
 use crate::ui::{
     ARROW_ICON, COPY_ICON, EXIT_ICON, MOSAIC_ICON, MOVE_ICON, NUMBER_ICON, PEN_ICON,
-    RECTANGLE_ICON, SAVE_ICON, UNDO_ICON, WORD_ICON, load_texture_from_png, ocr_button,
+    RECTANGLE_ICON, SAVE_ICON, WORD_ICON, load_texture_from_png, ocr_button,
 };
 use eframe::emath::{Pos2, Rect, Vec2};
 use eframe::epaint::{Color32, Hsva, Shape, Stroke, StrokeKind};
 use egui::color_picker::color_picker_hsva_2d;
-use egui::{Button, Id, Popup, PopupCloseBehavior, Response, Ui, ViewportId, color_picker};
+use egui::{Button, Id, Popup, PopupCloseBehavior, Response, Ui, color_picker};
 use std::io::Write;
 use std::time::Instant;
 
@@ -16,11 +16,127 @@ fn is_persistent_toolbar_tool(tool: Tool) -> bool {
 }
 
 fn toolbar_width(item_spacing: f32) -> f32 {
-    const ITEM_COUNT: f32 = 13.0;
-    const CONTENT_WIDTH: f32 = 7.0 * 30.0 + 30.0 + 30.0 + 30.0 + 3.0 * 30.0;
+    const ITEM_COUNT: f32 = 15.0;
+    const CONTENT_WIDTH: f32 = 15.0 * 30.0;
     const HORIZONTAL_MARGIN: f32 = 20.0;
 
     CONTENT_WIDTH + (ITEM_COUNT - 1.0) * item_spacing + HORIZONTAL_MARGIN
+}
+
+#[derive(Clone, Copy)]
+enum ToolbarActionIcon {
+    Undo,
+    Redo,
+    Pin,
+}
+
+fn toolbar_action_colors(enabled: bool, highlighted: bool) -> (Color32, Color32) {
+    if !enabled {
+        return (
+            Color32::from_rgba_unmultiplied(0, 100, 255, 115),
+            Color32::from_white_alpha(115),
+        );
+    }
+
+    let background = if highlighted {
+        Color32::from_rgb(30, 120, 255)
+    } else {
+        Color32::from_rgb(0, 100, 255)
+    };
+    (background, Color32::WHITE)
+}
+
+fn toolbar_action_button(
+    ui: &mut Ui,
+    enabled: bool,
+    icon: ToolbarActionIcon,
+    tooltip: &str,
+) -> Response {
+    let size = Vec2::splat(30.0);
+    let response = ui.add_enabled(enabled, Button::new("").min_size(size).frame(false));
+    let (background, foreground) =
+        toolbar_action_colors(enabled, response.hovered() || response.has_focus());
+    ui.painter().circle_filled(
+        response.rect.center(),
+        response.rect.width() / 2.0,
+        background,
+    );
+
+    match icon {
+        ToolbarActionIcon::Undo | ToolbarActionIcon::Redo => {
+            draw_history_action_icon(
+                ui.painter(),
+                response.rect.center(),
+                matches!(icon, ToolbarActionIcon::Redo),
+                foreground,
+            );
+        }
+        ToolbarActionIcon::Pin => {
+            let center = response.rect.center();
+            let stroke = Stroke::new(2.0, foreground);
+            ui.painter().add(Shape::line(
+                vec![
+                    center + egui::vec2(-5.0, -7.0),
+                    center + egui::vec2(5.0, -7.0),
+                    center + egui::vec2(3.0, -2.0),
+                    center + egui::vec2(6.0, 1.0),
+                    center + egui::vec2(-6.0, 1.0),
+                    center + egui::vec2(-3.0, -2.0),
+                    center + egui::vec2(-5.0, -7.0),
+                ],
+                stroke,
+            ));
+            ui.painter().line_segment(
+                [center + egui::vec2(0.0, 1.0), center + egui::vec2(0.0, 8.0)],
+                stroke,
+            );
+        }
+    }
+
+    response.on_hover_text(tooltip)
+}
+
+fn history_action_icon_geometry(redo: bool) -> Vec<Pos2> {
+    let mirror = if redo { -1.0 } else { 1.0 };
+    let point = |x: f32, y: f32| Pos2::new(x * mirror, y);
+    let mut points = vec![
+        point(-1.5, -7.0),
+        point(-7.0, -2.5),
+        point(-1.0, 2.0),
+        point(-6.0, -2.5),
+        point(1.0, -2.5),
+    ];
+
+    let mut append_cubic = |start: Pos2, control_1: Pos2, control_2: Pos2, end: Pos2| {
+        for step in 1..=8 {
+            let t = step as f32 / 8.0;
+            let inverse = 1.0 - t;
+            points.push(Pos2::new(
+                inverse.powi(3) * start.x
+                    + 3.0 * inverse.powi(2) * t * control_1.x
+                    + 3.0 * inverse * t.powi(2) * control_2.x
+                    + t.powi(3) * end.x,
+                inverse.powi(3) * start.y
+                    + 3.0 * inverse.powi(2) * t * control_1.y
+                    + 3.0 * inverse * t.powi(2) * control_2.y
+                    + t.powi(3) * end.y,
+            ));
+        }
+    };
+    let turn = point(6.5, 2.5);
+    append_cubic(point(1.0, -2.5), point(4.5, -2.5), point(6.5, -0.5), turn);
+    append_cubic(turn, point(6.5, 5.0), point(4.8, 6.5), point(2.0, 6.5));
+    points
+}
+
+fn draw_history_action_icon(painter: &egui::Painter, center: Pos2, redo: bool, color: Color32) {
+    let points = history_action_icon_geometry(redo)
+        .into_iter()
+        .map(|point| center + point.to_vec2())
+        .collect::<Vec<_>>();
+    let stroke = Stroke::new(2.0, color);
+    painter.add(Shape::line(points[..3].to_vec(), stroke));
+    painter.add(Shape::line(points[3..].to_vec(), stroke));
 }
 
 fn draw_annotation_text_editor(
@@ -223,45 +339,34 @@ impl ScreenshotApp {
                             // 颜色选择
                             self.custom_color_picker(ui, ctx);
 
-                            let undo_icon = load_texture_from_png(ctx, UNDO_ICON, "undo").unwrap();
-                            let undo_button =
-                                Button::new("").min_size(Vec2::new(30.0, 30.0)).frame(false);
-                            let undo_response = ui.add_sized(Vec2::new(30.0, 30.0), undo_button);
-                            let undo_hovered = undo_response.hovered() || undo_response.has_focus();
-                            if undo_hovered {
-                                self.tool_bar_focused = true;
-                                ui.painter().circle_filled(
-                                    undo_response.rect.center(),
-                                    undo_response.rect.width() / 2.0,
-                                    Color32::BLUE,
-                                );
-                            } else {
-                                ui.painter().circle_filled(
-                                    undo_response.rect.center(),
-                                    undo_response.rect.width() / 2.0,
-                                    Color32::from_rgb(0, 100, 255),
-                                );
-                            }
-                            let undo_icon_size = Vec2::new(20.0, 20.0);
-                            let undo_icon_rect =
-                                Rect::from_center_size(undo_response.rect.center(), undo_icon_size);
-                            ui.painter().image(
-                                undo_icon,
-                                undo_icon_rect,
-                                Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
-                                Color32::WHITE,
+                            let undo = toolbar_action_button(
+                                ui,
+                                self.can_undo(),
+                                ToolbarActionIcon::Undo,
+                                "撤销（Ctrl/Cmd+Z）",
                             );
-                            if undo_response.clicked()
-                                && let Some(popped) = self.annotations.pop()
-                                && popped.tool == Tool::Number
-                            {
-                                self.number_input = match self.number_input {
-                                    Some(n) if n > 1 => Some(n - 1),
-                                    _ => None,
-                                };
+                            if undo.hovered() || undo.has_focus() {
+                                self.tool_bar_focused = true;
+                            }
+                            if undo.clicked() {
+                                self.undo_edit();
+                                self.refresh_edit_toolbar(ctx);
+                            }
+                            let redo = toolbar_action_button(
+                                ui,
+                                self.can_redo(),
+                                ToolbarActionIcon::Redo,
+                                "重做（Ctrl/Cmd+Shift+Z）",
+                            );
+                            if redo.hovered() || redo.has_focus() {
+                                self.tool_bar_focused = true;
+                            }
+                            if redo.clicked() {
+                                self.redo_edit();
+                                self.refresh_edit_toolbar(ctx);
                             }
 
-                            // 操作： OCR，复制，保存，退出
+                            // 操作：OCR，贴图，复制，保存，退出
                             let ocr_response = ocr_button(ui, ctx);
                             if ocr_response.hovered() || ocr_response.has_focus() {
                                 self.tool_bar_focused = true;
@@ -273,33 +378,24 @@ impl ScreenshotApp {
                                 eprintln!("OCR 提交失败: {error}");
                             }
 
+                            let pin_response = toolbar_action_button(
+                                ui,
+                                true,
+                                ToolbarActionIcon::Pin,
+                                "将选区贴到屏幕并置顶",
+                            );
+                            if pin_response.hovered() || pin_response.has_focus() {
+                                self.tool_bar_focused = true;
+                            }
+                            if pin_response.clicked() {
+                                self.pin_selection_and_finish(ctx);
+                            }
+
                             if self
                                 .purple_icon_button(ui, Tool::Copy, ctx, COPY_ICON, "copy")
                                 .clicked()
                             {
-                                if !self.selection_rect.unwrap().contains(self.toolbar_position) {
-                                    let _ = self.copy_to_clipboard();
-                                    self.hide_capture_window(ctx);
-                                } else {
-                                    self.show_toolbar = false;
-                                    ctx.request_repaint_of(ViewportId(toolbar_id));
-                                    let sender_clone = self.signal_sender.clone();
-                                    std::thread::spawn(move || {
-                                        // 保存截图逻辑...
-                                        // 保存完成后可能需要再次重绘
-                                        if let Some(signal_sender) = sender_clone {
-                                            // 发送信号给主窗口
-                                            std::thread::sleep(std::time::Duration::from_millis(
-                                                20,
-                                            ));
-                                            signal_sender
-                                                .lock()
-                                                .unwrap()
-                                                .send(AppSignal::Copy)
-                                                .ok();
-                                        }
-                                    });
-                                }
+                                self.copy_selection_and_finish(ctx);
                             };
                             let save_response =
                                 self.purple_icon_button(ui, Tool::Save, ctx, SAVE_ICON, "save");
@@ -425,11 +521,23 @@ impl ScreenshotApp {
         if response.clicked() {
             self.current_tool = tool;
         }
-        response
+        response.on_hover_text(match tool {
+            Tool::MoveBox => "移动选区；拖动边角调整大小",
+            Tool::Pen => "画笔",
+            Tool::Rectangle => "矩形",
+            Tool::Arrow => "箭头",
+            Tool::Text => "文字（Ctrl/Cmd+Enter 完成）",
+            Tool::Number => "序号",
+            Tool::Mosaic => "马赛克",
+            Tool::Copy => "复制（Ctrl/Cmd+C）",
+            Tool::Save => "保存（Ctrl/Cmd+S）",
+            Tool::Exit => "取消（Esc）",
+            _ => "选择",
+        })
     }
 
     fn draw_single_annotation(&self, painter: &egui::Painter, annotation: &Annotation) {
-        let min_points = if annotation.tool == Tool::Mosaic {
+        let min_points = if matches!(annotation.tool, Tool::Mosaic | Tool::Text | Tool::Number) {
             1
         } else {
             2
@@ -544,7 +652,10 @@ impl ScreenshotApp {
 
 #[cfg(test)]
 mod tests {
-    use super::{draw_annotation_text_editor, is_persistent_toolbar_tool, toolbar_width};
+    use super::{
+        ToolbarActionIcon, draw_annotation_text_editor, history_action_icon_geometry,
+        is_persistent_toolbar_tool, toolbar_action_button, toolbar_action_colors, toolbar_width,
+    };
     use crate::app_default::{TextInputState, Tool};
 
     #[test]
@@ -653,8 +764,8 @@ mod tests {
     #[test]
     fn toolbar_width_covers_all_items_spacing_and_margin() {
         let default_item_spacing = egui::Style::default().spacing.item_spacing.x;
-        let item_count = 13.0;
-        let content_width = 7.0 * 30.0 + 30.0 + 30.0 + 30.0 + 3.0 * 30.0;
+        let item_count = 15.0;
+        let content_width = 15.0 * 30.0;
         let required_width = content_width + (item_count - 1.0) * default_item_spacing + 20.0;
 
         assert!(toolbar_width(default_item_spacing) >= required_width);
@@ -672,5 +783,80 @@ mod tests {
         assert!(!is_persistent_toolbar_tool(Tool::Copy));
         assert!(!is_persistent_toolbar_tool(Tool::Save));
         assert!(!is_persistent_toolbar_tool(Tool::Exit));
+    }
+
+    #[test]
+    fn disabled_history_buttons_keep_the_toolbar_blue_hue() {
+        let (enabled_background, _) = toolbar_action_colors(true, false);
+        let (disabled_background, _) = toolbar_action_colors(false, false);
+        let [enabled_r, enabled_g, enabled_b, enabled_a] =
+            enabled_background.to_srgba_unmultiplied();
+        let [disabled_r, disabled_g, disabled_b, disabled_a] =
+            disabled_background.to_srgba_unmultiplied();
+
+        assert_eq!(
+            (disabled_r, disabled_g, disabled_b),
+            (enabled_r, enabled_g, enabled_b)
+        );
+        assert!(disabled_a < enabled_a);
+    }
+
+    #[test]
+    fn undo_and_redo_arrow_geometry_are_exact_mirrors() {
+        let undo = history_action_icon_geometry(false);
+        let redo = history_action_icon_geometry(true);
+
+        assert_eq!(undo.len(), redo.len());
+        for (undo_point, redo_point) in undo.iter().zip(&redo) {
+            assert_eq!(undo_point.x, -redo_point.x);
+            assert_eq!(undo_point.y, redo_point.y);
+        }
+    }
+
+    #[test]
+    fn toolbar_action_icons_are_vector_paths_without_font_or_bitmap_assets() {
+        let context = egui::Context::default();
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(180.0, 60.0),
+            )),
+            ..Default::default()
+        };
+
+        let output = context.run(input, |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    toolbar_action_button(ui, true, ToolbarActionIcon::Undo, "撤销");
+                    toolbar_action_button(ui, true, ToolbarActionIcon::Redo, "重做");
+                    toolbar_action_button(ui, true, ToolbarActionIcon::Pin, "贴图");
+                });
+            });
+        });
+
+        let mut has_circle = false;
+        let mut has_bitmap = false;
+        let mut path_count = 0;
+        let mut has_text = false;
+        for shape in &output.shapes {
+            match &shape.shape {
+                egui::Shape::Circle(_) => has_circle = true,
+                egui::Shape::Mesh(_) => has_bitmap = true,
+                egui::Shape::Path(_) => path_count += 1,
+                egui::Shape::Text(text) if !text.galley.text().is_empty() => has_text = true,
+                _ => {}
+            }
+        }
+
+        assert!(
+            has_circle,
+            "action buttons need the same circular background as the toolbar"
+        );
+        assert!(!has_bitmap, "action icons must not load bitmap artwork");
+        assert!(path_count >= 3, "every action icon needs a vector path");
+        assert!(
+            !has_text,
+            "action icons must not depend on the current font"
+        );
     }
 }

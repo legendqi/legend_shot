@@ -67,14 +67,33 @@ test_linux() {
     assert_contains "packaging/linux/control.in" 'xclip'
 }
 
+test_macos() {
+    assert_file "packaging/macos/package.sh"
+    assert_file "packaging/macos/Info.plist.in"
+    assert_file "packaging/macos/make_icns.py"
+    bash -n "$PROJECT_ROOT/packaging/macos/package.sh"
+    assert_contains "packaging/macos/package.sh" 'aarch64-apple-darwin'
+    assert_contains "packaging/macos/package.sh" 'x86_64-apple-darwin'
+    assert_contains "packaging/macos/package.sh" 'MACOS_SIGN_IDENTITY'
+    assert_contains "packaging/macos/package.sh" 'MACOS_NOTARY_PROFILE'
+    assert_contains "packaging/macos/package.sh" 'notarytool submit'
+    assert_contains "packaging/macos/package.sh" 'stapler staple'
+    assert_contains "packaging/macos/make_icns.py" 'EXPECTED_SIZES'
+    assert_contains "packaging/macos/make_icns.py" 'ICNS_TYPES'
+    assert_contains "packaging/macos/Info.plist.in" 'com.legend.legend-shot'
+    assert_contains "packaging/macos/Info.plist.in" '<key>LSUIElement</key>'
+}
+
 case "${1:-all}" in
     dispatcher) test_dispatcher ;;
     windows) test_windows ;;
     linux) test_linux ;;
+    macos) test_macos ;;
     all)
         test_dispatcher
         test_windows
         test_linux
+        test_macos
         ;;
     *) fail "unknown test group: ${1:-}" ;;
 esac

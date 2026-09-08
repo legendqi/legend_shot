@@ -73,11 +73,17 @@ impl ScreenshotApp {
         self.ocr_capture_snapshot = Some(CaptureSnapshot {
             selection_rect: self.selection_rect,
             annotations: self.annotations.clone(),
+            edit_history: self.edit_history.clone(),
+            number_input: self.number_input,
         });
         self.ocr_session.begin_capture();
         self.app_view = AppView::Capture;
         self.selection_rect = None;
         self.annotations.clear();
+        self.edit_history = crate::app_history::EditHistory::default();
+        self.number_input = None;
+        self.current_tool = crate::app_default::Tool::Select;
+        self.text_input = None;
         self.current_annotation = None;
         self.show_toolbar = false;
         true
@@ -93,6 +99,8 @@ impl ScreenshotApp {
         if let Some(snapshot) = self.ocr_capture_snapshot.take() {
             self.selection_rect = snapshot.selection_rect;
             self.annotations = snapshot.annotations;
+            self.edit_history = snapshot.edit_history;
+            self.number_input = snapshot.number_input;
         }
         self.ocr_session.cancel_capture();
         self.app_view = AppView::OcrResult;
@@ -111,6 +119,8 @@ impl ScreenshotApp {
             if let Some(snapshot) = self.ocr_capture_snapshot.take() {
                 self.selection_rect = snapshot.selection_rect;
                 self.annotations = snapshot.annotations;
+                self.edit_history = snapshot.edit_history;
+                self.number_input = snapshot.number_input;
             }
             self.ocr_session.cancel_capture();
             self.app_view = AppView::OcrResult;
@@ -177,6 +187,8 @@ mod tests {
         app.ocr_session.state = OcrViewState::Result;
         app.app_view = AppView::OcrResult;
         app.ocr_capture_snapshot = Some(CaptureSnapshot {
+            edit_history: Default::default(),
+            number_input: None,
             selection_rect: None,
             annotations: Vec::new(),
         });
@@ -215,6 +227,8 @@ mod tests {
         app.ocr_session.state = OcrViewState::Capturing;
         app.app_view = AppView::Capture;
         app.ocr_capture_snapshot = Some(CaptureSnapshot {
+            edit_history: Default::default(),
+            number_input: None,
             selection_rect: Some(egui::Rect::from_min_max(
                 egui::pos2(10.0, 20.0),
                 egui::pos2(30.0, 40.0),
@@ -304,6 +318,8 @@ mod tests {
         app.ocr_session.state = OcrViewState::Capturing;
         app.app_view = AppView::Capture;
         app.ocr_capture_snapshot = Some(CaptureSnapshot {
+            edit_history: Default::default(),
+            number_input: None,
             selection_rect: Some(old_selection),
             annotations: vec![old_annotation],
         });

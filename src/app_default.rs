@@ -1,5 +1,4 @@
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, mpsc};
 
 use device_query::{DeviceQuery, DeviceState};
 use eframe::emath::{Pos2, Rect};
@@ -32,16 +31,23 @@ impl Default for OcrWindowState {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
     pub last_save_dir: Option<PathBuf>,
     #[serde(default)]
     pub ocr_window: OcrWindowState,
+    #[serde(default = "crate::hotkey::default_capture_shortcut")]
+    pub capture_shortcut: String,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub enum AppSignal {
-    Copy,
+impl Default for AppConfig {
+    fn default() -> Self {
+        Self {
+            last_save_dir: None,
+            ocr_window: OcrWindowState::default(),
+            capture_shortcut: crate::hotkey::default_capture_shortcut(),
+        }
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -69,7 +75,7 @@ impl Tool {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct Annotation {
     pub tool: Tool,
     pub points: Vec<Pos2>,
@@ -229,6 +235,8 @@ impl AppLifecycle {
 pub struct CaptureSnapshot {
     pub selection_rect: Option<Rect>,
     pub annotations: Vec<Annotation>,
+    pub(crate) edit_history: crate::app_history::EditHistory,
+    pub number_input: Option<i32>,
 }
 
 pub struct DisplayTextureTile {
@@ -239,7 +247,9 @@ pub struct DisplayTextureTile {
 pub struct ScreenshotApp {
     pub lifecycle: AppLifecycle,
     pub capture_reveal_state: CaptureRevealState,
-    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    pub(crate) pins: crate::app_pin::PinnedImages,
+    pub(crate) pin_capture_state: crate::app_pin::PinCaptureState,
+    #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
     pub(crate) tray_runtime: Option<crate::tray::TrayRuntime>,
     pub capture_session: Option<CaptureSession>,
     pub display_textures: Vec<Vec<DisplayTextureTile>>,
@@ -252,11 +262,13 @@ pub struct ScreenshotApp {
     pub selection_end: Pos2,
     pub is_moving_box: bool,
     pub move_start: Pos2,
+    pub(crate) resize_handle: Option<crate::selection::ResizeHandle>,
 
     // 标注状态
     pub current_tool: Tool,
     pub annotations: Vec<Annotation>,
     pub current_annotation: Option<Annotation>,
+    pub(crate) edit_history: crate::app_history::EditHistory,
     pub brush_size: f32,
     pub annotation_color: Color32,
     pub text_input: Option<TextInputState>,
@@ -277,12 +289,12 @@ pub struct ScreenshotApp {
     pub pointer_snapshot: Option<PointerSnapshot>,
     pub last_primary_down: bool,
 
-    pub signal_sender: Option<Arc<Mutex<mpsc::Sender<AppSignal>>>>,
-    pub signal_receiver: Option<Arc<Mutex<mpsc::Receiver<AppSignal>>>>,
-
     // 文件保存对话框
     pub native_save_dialog_state: NativeSaveDialogState,
     pub pending_save_image: Option<ImageBuffer<Rgba<u8>, Vec<u8>>>,
+    pub capture_error: Option<String>,
+    pub(crate) hotkey_runtime: Option<crate::hotkey::HotkeyRuntime>,
+    pub(crate) shortcut_settings: crate::app_settings::ShortcutSettings,
     pub config: AppConfig,
     pub config_path: PathBuf,
 
@@ -302,11 +314,12 @@ pub struct ScreenshotApp {
 
 impl Default for ScreenshotApp {
     fn default() -> Self {
-        let (sender, receiver) = mpsc::channel();
         Self {
             lifecycle: AppLifecycle::Capturing,
             capture_reveal_state: CaptureRevealState::Idle,
-            #[cfg(any(target_os = "macos", target_os = "linux"))]
+            pins: crate::app_pin::PinnedImages::default(),
+            pin_capture_state: crate::app_pin::PinCaptureState::default(),
+            #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
             tray_runtime: None,
             capture_session: None,
             display_textures: Vec::new(),
@@ -317,9 +330,11 @@ impl Default for ScreenshotApp {
             selection_end: Pos2::ZERO,
             is_moving_box: false,
             move_start: Pos2::ZERO,
+            resize_handle: None,
             current_tool: Tool::Select,
             annotations: Vec::new(),
             current_annotation: None,
+            edit_history: crate::app_history::EditHistory::default(),
             brush_size: 3.0,
             annotation_color: Color32::RED,
             text_input: None,
@@ -334,10 +349,11 @@ impl Default for ScreenshotApp {
             device_state: None,
             pointer_snapshot: None,
             last_primary_down: false,
-            signal_sender: Some(Arc::new(Mutex::new(sender))),
-            signal_receiver: Some(Arc::new(Mutex::new(receiver))),
             native_save_dialog_state: NativeSaveDialogState::Idle,
             pending_save_image: None,
+            capture_error: None,
+            hotkey_runtime: None,
+            shortcut_settings: crate::app_settings::ShortcutSettings::default(),
             config: AppConfig::default(),
             config_path: PathBuf::new(),
             app_view: AppView::Capture,
@@ -393,28 +409,32 @@ impl ScreenshotApp {
     }
 
     pub fn with_config(config: AppConfig, config_path: PathBuf) -> Self {
-        let (sender, receiver) = mpsc::channel();
-        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+        #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
         let device_state = Some(DeviceState::new());
-        #[cfg(any(target_os = "macos", target_os = "linux"))]
+        #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
         let device_state = None;
         Self {
             config,
             config_path,
-            signal_sender: Some(Arc::new(Mutex::new(sender))),
-            signal_receiver: Some(Arc::new(Mutex::new(receiver))),
             device_state,
             ..Self::default()
         }
     }
 
     pub fn save_config(&self) {
-        if let Ok(json) = serde_json::to_string_pretty(&self.config) {
-            if let Some(parent) = self.config_path.parent() {
-                let _ = std::fs::create_dir_all(parent);
-            }
-            let _ = std::fs::write(&self.config_path, json);
+        if let Err(error) = self.save_config_result() {
+            eprintln!("保存配置失败: {error}");
         }
+    }
+
+    pub(crate) fn save_config_result(&self) -> Result<(), String> {
+        let json = serde_json::to_string_pretty(&self.config).map_err(|error| error.to_string())?;
+        if let Some(parent) = self.config_path.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+        }
+        std::fs::write(&self.config_path, json).map_err(|error| error.to_string())
     }
 }
 
