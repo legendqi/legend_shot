@@ -40,6 +40,7 @@
 packaging/
 ├── linux/
 │   ├── package.sh
+│   ├── AppRun
 │   ├── legend-shot.desktop
 │   └── control.in
 ├── macos/
@@ -177,7 +178,7 @@ dist/legend-shot_<version>_amd64.deb
 
 ### AppImage
 
-linuxdeploy 接收主程序、Desktop 文件和图标。由于应用在 Linux 复制图片时通过进程名启动 `xclip`，脚本还必须把 `/usr/bin/xclip` 作为额外 executable 加入 AppDir，使 AppRun 设置的 PATH 能找到它并让 linuxdeploy 收集其动态库。
+linuxdeploy 接收主程序、`xclip`、Desktop 文件、图标和仓库提供的自定义 `AppRun`。由于应用在 Linux 复制图片时通过进程名启动 `xclip`，而 linuxdeploy 不会自动修改运行时 `PATH`，自定义 `AppRun` 必须将 AppDir 的 `usr/bin` 前置到 `PATH`，再启动 `usr/bin/legend_shot`。`xclip` 作为额外 executable 交给 linuxdeploy，以便同时收集其动态库。
 
 输出统一重命名为：
 
@@ -185,7 +186,7 @@ linuxdeploy 接收主程序、Desktop 文件和图标。由于应用在 Linux �
 dist/LegendShot-<version>-x86_64.AppImage
 ```
 
-脚本验证 AppImage 可执行，并通过提取检查确认主程序、Desktop 文件和 xclip 存在。真实兼容性仍需在没有 Rust 和开发包的干净 Debian、Ubuntu、Fedora X11 环境中验证。
+脚本通过 `--custom-apprun` 安装该入口，并用 `LDAI_OUTPUT` 固定输出文件名。脚本验证 AppImage 可执行，并通过提取检查确认主程序、Desktop 文件、xclip 和自定义 AppRun 存在。真实兼容性仍需在没有 Rust 和开发包的干净 Debian、Ubuntu、Fedora X11 环境中验证。
 
 ## macOS 打包
 
