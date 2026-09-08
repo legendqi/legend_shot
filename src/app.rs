@@ -29,6 +29,10 @@ fn capture_overlay_level_for_input(is_macos: bool, text_input_active: bool) -> C
     }
 }
 
+fn capture_overlay_x11_window_type_for(is_linux: bool) -> Option<egui::X11WindowType> {
+    is_linux.then_some(egui::X11WindowType::Dock)
+}
+
 fn is_capture_overlay_title(title: &str) -> bool {
     title == CAPTURE_OVERLAY_TITLE
 }
@@ -597,7 +601,7 @@ impl ScreenshotApp {
         let mut close_requested = false;
 
         for spec in specs {
-            let builder = egui::ViewportBuilder::default()
+            let mut builder = egui::ViewportBuilder::default()
                 .with_title(CAPTURE_OVERLAY_TITLE)
                 .with_position(spec.position)
                 .with_inner_size(spec.size)
@@ -610,6 +614,11 @@ impl ScreenshotApp {
                 .with_maximize_button(false)
                 .with_window_level(egui::WindowLevel::AlwaysOnTop)
                 .with_visible(visible);
+            if let Some(window_type) =
+                capture_overlay_x11_window_type_for(cfg!(target_os = "linux"))
+            {
+                builder = builder.with_window_type(window_type);
+            }
             close_requested |= ctx.show_viewport_immediate(
                 spec.viewport_id,
                 builder,
@@ -655,9 +664,10 @@ mod tests {
 
     use super::{
         CAPTURE_OVERLAY_TITLE, CaptureOverlayLevel, CompletionDisposition, OCR_WINDOW_MIN_SIZE,
-        capture_overlay_level_for_input, capture_root_viewport, capture_window_geometry_commands,
-        capture_window_style_for, completion_disposition_for, is_capture_overlay_title,
-        linux_x11_session_supported, overlay_ids_to_close, overlay_specs,
+        capture_overlay_level_for_input, capture_overlay_x11_window_type_for,
+        capture_root_viewport, capture_window_geometry_commands, capture_window_style_for,
+        completion_disposition_for, is_capture_overlay_title, linux_x11_session_supported,
+        overlay_ids_to_close, overlay_specs,
     };
 
     fn test_session_with_bounds(bounds: &[(f32, f32, f32, f32)]) -> CaptureSession {
@@ -821,6 +831,15 @@ mod tests {
                 .iter()
                 .all(|spec| spec.always_on_top && !spec.decorated)
         );
+    }
+
+    #[test]
+    fn only_linux_capture_overlays_use_the_x11_dock_layer() {
+        assert_eq!(
+            capture_overlay_x11_window_type_for(true),
+            Some(egui::X11WindowType::Dock)
+        );
+        assert_eq!(capture_overlay_x11_window_type_for(false), None);
     }
 
     #[test]

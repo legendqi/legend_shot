@@ -7,3 +7,4 @@
 .superpowers/
 .codegraph/
 /dist/
+.local/

@@ -139,6 +139,17 @@ fn draw_history_action_icon(painter: &egui::Painter, center: Pos2, redo: bool, c
     painter.add(Shape::line(points[3..].to_vec(), stroke));
 }
 
+#[cfg(target_os = "linux")]
+fn backport_linux_ime_commit_fix(ui: &mut Ui) {
+    ui.input_mut(|input| {
+        for event in &mut input.events {
+            if let egui::Event::Ime(egui::ImeEvent::Commit(text)) = event {
+                *event = egui::Event::Text(std::mem::take(text));
+            }
+        }
+    });
+}
+
 fn draw_annotation_text_editor(
     ui: &mut Ui,
     text_state: &mut crate::app_default::TextInputState,
@@ -151,6 +162,11 @@ fn draw_annotation_text_editor(
         ui.ctx().request_repaint();
     }
     ui.style_mut().visuals.text_cursor.stroke.color = color;
+    // egui 0.33 rejects later IME commits when the cursor moved from its
+    // initial position. Treat a Linux commit as the equivalent text event;
+    // macOS and Windows keep egui's native path unchanged.
+    #[cfg(target_os = "linux")]
+    backport_linux_ime_commit_fix(ui);
     let response = ui.add(
         egui::TextEdit::multiline(&mut text_state.text)
             .font(egui::FontId::proportional(16.0))
@@ -759,6 +775,42 @@ mod tests {
         );
 
         assert_eq!(state.text, "中文");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_annotation_editor_accepts_consecutive_ime_commits() {
+        let context = egui::Context::default();
+        let mut state = TextInputState::new(egui::Pos2::ZERO);
+        let run_frame = |events: Vec<egui::Event>, state: &mut TextInputState| {
+            let input = egui::RawInput {
+                focused: true,
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(300.0, 100.0),
+                )),
+                events,
+                ..Default::default()
+            };
+            let _ = context.run(input, |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    draw_annotation_text_editor(ui, state, 280.0, egui::Color32::WHITE);
+                });
+            });
+        };
+
+        run_frame(Vec::new(), &mut state);
+        run_frame(vec![egui::Event::Ime(egui::ImeEvent::Enabled)], &mut state);
+        run_frame(
+            vec![egui::Event::Ime(egui::ImeEvent::Commit("中文".to_string()))],
+            &mut state,
+        );
+        run_frame(
+            vec![egui::Event::Ime(egui::ImeEvent::Commit("测试".to_string()))],
+            &mut state,
+        );
+
+        assert_eq!(state.text, "中文测试");
     }
 
     #[test]

@@ -10,13 +10,11 @@ eframe = { version = "0.33.2", default-features = false, features = ["glow", "ac
 rfd = "0.15.4"
 chrono = { version = "0.4.42", default-features = false, features = ["std", "clock"] }
 image = { version = "0.25.8", default-features = false, features = ["png", "jpeg"] }
-xcap = "0.9.4"
 device_query = "4.0.1"
 clap = { version = "4.5", default-features = false, features = ["derive", "std"] }
 serde = { version = "1", default-features = false, features = ["derive", "std"] }
 serde_json = { version = "1", default-features = false, features = ["std"] }
 directories = "6.0"
-oar-ocr = { version = "=0.7.0", features = ["auto-download"] }
 ab_glyph = "0.2.32"
 imageproc = "0.26.2"
 global-hotkey = "0.8"
@@ -26,6 +24,13 @@ tray-icon = "0.24.2"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 gtk = { version = "0.18.2", features = ["v3_24"] }
+xcap = "=0.4.0"
+oar-ocr = { version = "=0.7.0", default-features = false, features = ["auto-download", "simd"] }
+ort = { version = "=2.0.0-rc.12", default-features = false, features = ["api-18", "load-dynamic"] }
+
+[target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
+xcap = "=0.9.4"
+oar-ocr = { version = "=0.7.0", features = ["auto-download"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6.4"
