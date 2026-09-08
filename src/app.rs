@@ -33,6 +33,15 @@ fn capture_overlay_x11_window_type_for(is_linux: bool) -> Option<egui::X11Window
     is_linux.then_some(egui::X11WindowType::Dock)
 }
 
+fn capture_overlays_visible(
+    reveal_state: crate::app_default::CaptureRevealState,
+    save_dialog_state: crate::app_default::NativeSaveDialogState,
+    is_linux: bool,
+) -> bool {
+    reveal_state == crate::app_default::CaptureRevealState::Idle
+        && !(is_linux && save_dialog_state != crate::app_default::NativeSaveDialogState::Idle)
+}
+
 fn is_capture_overlay_title(title: &str) -> bool {
     title == CAPTURE_OVERLAY_TITLE
 }
@@ -597,7 +606,11 @@ impl ScreenshotApp {
             self.update_global_pointer_interaction(snapshot, transition, ctx);
         }
         self.tool_bar_focused = false;
-        let visible = self.capture_reveal_state == crate::app_default::CaptureRevealState::Idle;
+        let visible = capture_overlays_visible(
+            self.capture_reveal_state,
+            self.native_save_dialog_state,
+            cfg!(target_os = "linux"),
+        );
         let mut close_requested = false;
 
         for spec in specs {
@@ -665,9 +678,9 @@ mod tests {
     use super::{
         CAPTURE_OVERLAY_TITLE, CaptureOverlayLevel, CompletionDisposition, OCR_WINDOW_MIN_SIZE,
         capture_overlay_level_for_input, capture_overlay_x11_window_type_for,
-        capture_root_viewport, capture_window_geometry_commands, capture_window_style_for,
-        completion_disposition_for, is_capture_overlay_title, linux_x11_session_supported,
-        overlay_ids_to_close, overlay_specs,
+        capture_overlays_visible, capture_root_viewport, capture_window_geometry_commands,
+        capture_window_style_for, completion_disposition_for, is_capture_overlay_title,
+        linux_x11_session_supported, overlay_ids_to_close, overlay_specs,
     };
 
     fn test_session_with_bounds(bounds: &[(f32, f32, f32, f32)]) -> CaptureSession {
@@ -840,6 +853,30 @@ mod tests {
             Some(egui::X11WindowType::Dock)
         );
         assert_eq!(capture_overlay_x11_window_type_for(false), None);
+    }
+
+    #[test]
+    fn only_linux_hides_capture_overlays_while_save_dialog_is_pending() {
+        use crate::app_default::{CaptureRevealState, NativeSaveDialogState};
+
+        let pending = NativeSaveDialogState::WaitingForHiddenFrame {
+            restore_toolbar: true,
+        };
+        assert!(!capture_overlays_visible(
+            CaptureRevealState::Idle,
+            pending,
+            true
+        ));
+        assert!(capture_overlays_visible(
+            CaptureRevealState::Idle,
+            pending,
+            false
+        ));
+        assert!(capture_overlays_visible(
+            CaptureRevealState::Idle,
+            NativeSaveDialogState::Idle,
+            true
+        ));
     }
 
     #[test]
