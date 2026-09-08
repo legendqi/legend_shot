@@ -1,5 +1,7 @@
 #!/bin/bash
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # 安装所需的编译目标
 setup_targets() {
     echo "安装编译目标..."
@@ -38,7 +40,7 @@ build_linux_amd64() {
     echo "编译Linux AMD64版本..."
     check_linux_tray_dependencies "" || return 1
     cargo build --release --target=x86_64-unknown-linux-gnu
-    echo "输出文件: target/x86_64-unknown-linux-gnu/release/screenshot-linux-amd64"
+    echo "输出文件: target/x86_64-unknown-linux-gnu/release/legend_shot"
 }
 
 # 编译Linux ARM64版本
@@ -54,28 +56,56 @@ build_linux_arm64() {
     fi
     check_linux_tray_dependencies "$pkg_config_libdir" || return 1
     cargo build --release --target=aarch64-unknown-linux-gnu
-    echo "输出文件: target/aarch64-unknown-linux-gnu/release/screenshot-linux-arm64"
+    echo "输出文件: target/aarch64-unknown-linux-gnu/release/legend_shot"
 }
 
 # 编译Windows版本
 build_windows() {
     echo "编译Windows版本..."
-    cargo build --release --target=x86_64-pc-windows-gnu
-    echo "输出文件: target/x86_64-pc-windows-gnu/release/screenshot.exe"
+    cargo build --release --target=x86_64-pc-windows-msvc
+    echo "输出文件: target/x86_64-pc-windows-msvc/release/legend_shot.exe"
 }
 
 # 编译macOS ARM64版本
 build_macos_arm64() {
     echo "编译macOS ARM64版本..."
     cargo build --release --target=aarch64-apple-darwin
-    echo "输出文件: target/aarch64-apple-darwin/release/screenshot-macos-arm64"
+    echo "输出文件: target/aarch64-apple-darwin/release/legend_shot"
 }
 
 # 编译macOS Intel版本
 build_macos_intel() {
     echo "编译macOS Intel版本..."
     cargo build --release --target=x86_64-apple-darwin
-    echo "输出文件: target/x86_64-apple-darwin/release/screenshot-macos-x86_64"
+    echo "输出文件: target/x86_64-apple-darwin/release/legend_shot"
+}
+
+package_windows() {
+    if command -v powershell.exe >/dev/null 2>&1; then
+        powershell.exe -NoProfile -ExecutionPolicy Bypass \
+            -File "$SCRIPT_DIR/packaging/windows/package.ps1"
+    elif command -v pwsh >/dev/null 2>&1; then
+        pwsh -NoProfile -File "$SCRIPT_DIR/packaging/windows/package.ps1"
+    else
+        echo "Windows 打包需要在 Windows 上安装 PowerShell 后执行。" >&2
+        return 1
+    fi
+}
+
+package_linux() {
+    bash "$SCRIPT_DIR/packaging/linux/package.sh"
+}
+
+package_macos_arm64() {
+    bash "$SCRIPT_DIR/packaging/macos/package.sh" arm64
+}
+
+package_macos_intel() {
+    bash "$SCRIPT_DIR/packaging/macos/package.sh" x86_64
+}
+
+print_usage() {
+    echo "用法: $0 {setup|linux-amd64|linux-arm64|windows|macos-arm64|macos-intel|all|package-windows|package-linux|package-macos-arm64|package-macos-intel}"
 }
 
 # 编译所有平台
@@ -119,8 +149,23 @@ case "$1" in
     "all")
         build_all
         ;;
+    "package-windows")
+        package_windows
+        ;;
+    "package-linux")
+        package_linux
+        ;;
+    "package-macos-arm64")
+        package_macos_arm64
+        ;;
+    "package-macos-intel")
+        package_macos_intel
+        ;;
+    "help"|"-h"|"--help")
+        print_usage
+        ;;
     *)
-        echo "用法: $0 {setup|linux-amd64|linux-arm64|windows|macos-arm64|macos-intel|all}"
+        print_usage
         exit 1
         ;;
 esac
